@@ -3,6 +3,7 @@ import {
   readImplementation,
   readManyImplementation,
 } from "./read";
+import { GQueryUpdateOptions, updateImplementation } from "./update";
 
 export class GQuery {
   spreadsheetId: string;
@@ -25,7 +26,20 @@ export class GQuery {
     return readManyImplementation(this.spreadsheetId, sheetNames, options);
   }
 
-  update(sheetName: string, data: Row[]) {}
+  update(
+    sheetName: string,
+    target: Row[],
+    updateData: Record<string, any>,
+    options?: GQueryUpdateOptions
+  ) {
+    return updateImplementation(
+      this.spreadsheetId,
+      sheetName,
+      target,
+      updateData,
+      options
+    );
+  }
 }
 
 export type GQueryFilter = (row: any) => boolean;
@@ -36,3 +50,14 @@ export type Row = Record<string, any> & {
     colLength: number;
   };
 };
+
+export enum ValueRenderOption {
+  FORMATTED_VALUE = "FORMATTED_VALUE",
+  UNFORMATTED_VALUE = "UNFORMATTED_VALUE",
+  FORMULA = "FORMULA",
+}
+
+export enum DateTimeRenderOption {
+  FORMATTED_STRING = "FORMATTED_STRING",
+  SERIAL_NUMBER = "SERIAL_NUMBER",
+}

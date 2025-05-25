@@ -1,4 +1,9 @@
-import { GQueryFilter, Row } from "./index";
+import {
+  DateTimeRenderOption,
+  GQueryFilter,
+  Row,
+  ValueRenderOption,
+} from "./index";
 
 export function readImplementation(
   spreadsheetId: string,
@@ -206,14 +211,3 @@ export type GQueryReadData = {
   headers: string[];
   values: Row[];
 };
-
-enum ValueRenderOption {
-  FORMATTED_VALUE = "FORMATTED_VALUE",
-  UNFORMATTED_VALUE = "UNFORMATTED_VALUE",
-  FORMULA = "FORMULA",
-}
-
-enum DateTimeRenderOption {
-  FORMATTED_STRING = "FORMATTED_STRING",
-  SERIAL_NUMBER = "SERIAL_NUMBER",
-}
