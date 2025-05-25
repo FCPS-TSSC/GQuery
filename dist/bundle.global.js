@@ -6,8 +6,8 @@ var GQuery = (function (exports) {
         valueRenderOption: ValueRenderOption.FORMATTED_VALUE,
     }) {
         var sheets = [sheetName];
-        if ((options === null || options === void 0 ? void 0 : options.join) && "sheets" in options.join) {
-            sheets = [...new Set([...sheets, ...options.join.sheets])];
+        if (options === null || options === void 0 ? void 0 : options.join) {
+            sheets = [...new Set([...sheets, ...Object.keys(options.join)])];
         }
         const optionsWithoutFilterJoin = {
             valueRenderOption: options.valueRenderOption,
@@ -24,7 +24,7 @@ var GQuery = (function (exports) {
             };
         }
         // Apply join if provided
-        if ((options === null || options === void 0 ? void 0 : options.join) && options.join.sheets && options.join.sheets.length > 0) {
+        if ((options === null || options === void 0 ? void 0 : options.join) && Object.keys(options.join).length > 0) {
             const joinedData = applyJoin(mainData, allSheetData, Array.isArray(sheetName) ? sheetName[0] : sheetName, options.join);
             return joinedData;
         }
@@ -72,115 +72,75 @@ var GQuery = (function (exports) {
             return { headers: [], values: [] };
         }
         const { headers, rows } = sheetData;
-        const values = rows.map((row) => {
-            return row.reduce((obj, cellValue, index) => {
-                obj[headers[index]] = cellValue;
-                return obj;
-            }, {
-                __meta: {
-                    rowNum: rows.indexOf(row) + 2, // +2 because headers are row 1, and rows is 0-based
-                    colLength: row.length,
-                },
-            });
+        const values = rows.map((row, rowIndex) => {
+            const obj = row.reduce((acc, cellValue, index) => {
+                acc[headers[index]] = cellValue;
+                return acc;
+            }, {});
+            // Attach __meta property as required by Row type
+            obj.__meta = {
+                rowNum: rowIndex + 2, // +2 because headers are row 1, and rows is 0-based
+                colLength: row.length,
+            };
+            return obj;
         });
         return { headers, values };
     }
     // Helper function to apply join operations
     function applyJoin(mainData, allSheetData, mainSheetName, join) {
-        // Since allSheetData now contains processed sheet data, we can use it directly
-        const joinedSheetsData = join.sheets.reduce((acc, sheetName) => {
-            if (allSheetData[sheetName]) {
-                acc[sheetName] = allSheetData[sheetName];
-            }
-            return acc;
-        }, {});
-        // If no where function provided, return unmodified data
-        if (!join.where) {
-            return mainData;
-        }
+        // Create result with main data's headers
         const result = {
             headers: [...mainData.headers],
-            values: [],
+            values: [...mainData.values],
         };
-        // Create a context object with all data
-        const context = {};
-        // Add the main sheet data as an array of objects
-        context[mainSheetName] = mainData.values;
-        // Add all joined sheets' data
-        Object.entries(joinedSheetsData).forEach(([sheetName, data]) => {
-            context[sheetName] = data.values;
-        });
-        // Capture the returned object from array methods like some()
-        let capturedReturnValue = null;
-        // Override Array.prototype.some for this execution
-        const originalSome = Array.prototype.some;
-        Array.prototype.some = function (callback) {
-            for (let i = 0; i < this.length; i++) {
-                const returnValue = callback(this[i], i, this);
-                if (returnValue && typeof returnValue === "object") {
-                    // Capture the returned object
-                    capturedReturnValue = returnValue;
-                }
-                if (returnValue)
-                    return true;
-            }
-            return false;
-        };
-        try {
-            // Apply the where function with the context
-            const whereResult = join.where(context);
-            // Process the result based on its type
-            if (Array.isArray(whereResult)) {
-                // If an array is returned, use it as the values
-                result.values = whereResult;
-                // Update headers if new properties were added in the returned objects
-                if (whereResult.length > 0) {
-                    const allKeys = new Set(result.headers);
-                    whereResult.forEach((row) => {
-                        Object.keys(row).forEach((key) => allKeys.add(key));
+        // Process each main data row
+        result.values = mainData.values.map((mainRow) => {
+            const enrichedRow = Object.assign({}, mainRow);
+            // For each joined sheet
+            Object.entries(join).forEach(([sheetName, joinConfig]) => {
+                if (!allSheetData[sheetName])
+                    return;
+                const sheetData = allSheetData[sheetName];
+                // Find matching rows in the joined sheet
+                const matchingRows = sheetData.values.filter((joinRow) => {
+                    // Check all join conditions defined for this sheet
+                    const conditions = joinConfig.on;
+                    if (!conditions)
+                        return false;
+                    return Object.entries(conditions).every(([mainCol, joinCol]) => {
+                        return mainRow[mainCol] === joinRow[joinCol];
                     });
-                    result.headers = Array.from(allKeys);
-                }
-            }
-            else if (whereResult === true && capturedReturnValue) {
-                // If true is returned from an array method like some() and we captured a return value
-                // Only include the values from the original item and specifically returned properties
-                result.values = mainData.values.map((originalItem) => {
-                    // Start with the original item
-                    const resultItem = Object.assign({}, originalItem);
-                    // Only add the specific properties from the captured return value
-                    if (capturedReturnValue) {
-                        Object.keys(capturedReturnValue).forEach((key) => {
-                            if (!originalItem.hasOwnProperty(key)) {
-                                resultItem[key] = capturedReturnValue[key];
+                });
+                // Add matching data to the main row
+                if (matchingRows.length > 0) {
+                    // If includes is specified, only add those fields
+                    if (joinConfig.include && joinConfig.include.length > 0) {
+                        joinConfig.include.forEach((field) => {
+                            enrichedRow[`${sheetName}_${field}`] = matchingRows[0][field];
+                        });
+                    }
+                    else {
+                        // Otherwise add all fields with sheet name prefix to avoid collisions
+                        Object.entries(matchingRows[0]).forEach(([key, value]) => {
+                            if (key !== "__meta") {
+                                enrichedRow[`${sheetName}_${key}`] = value;
                             }
                         });
                     }
-                    return resultItem;
-                });
-                // Update headers to include the new properties
-                if (result.values.length > 0 && capturedReturnValue) {
-                    const newKeys = Object.keys(capturedReturnValue).filter((key) => !result.headers.includes(key) &&
-                        !mainData.values[0].hasOwnProperty(key));
-                    if (newKeys.length > 0) {
-                        result.headers.push(...newKeys);
-                    }
                 }
-            }
-            else if (whereResult && typeof whereResult === "object") {
-                // If a single object is returned, use it as a single row
-                result.values.push(whereResult);
-                // Update headers if new properties were added
-                const newKeys = Object.keys(whereResult).filter((key) => !result.headers.includes(key));
-                if (newKeys.length > 0) {
-                    result.headers.push(...newKeys);
+            });
+            return enrichedRow;
+        });
+        // Update headers to include any new fields
+        const allKeys = new Set();
+        result.values.forEach((row) => {
+            Object.keys(row).forEach((key) => {
+                if (key !== "__meta") {
+                    allKeys.add(key);
                 }
-            }
-        }
-        finally {
-            // Restore the original method
-            Array.prototype.some = originalSome;
-        }
+            });
+        });
+        result.headers = Array.from(allKeys);
         return result;
     }
     var ValueRenderOption;
@@ -210,6 +170,7 @@ var GQuery = (function (exports) {
         readMany(sheetNames, options) {
             return readManyImplementation(this.spreadsheetId, sheetNames, options);
         }
+        update(sheetName, data) { }
     }
 
     exports.GQuery = GQuery;

@@ -1,25 +1,19 @@
-import { GQueryFilter } from "./index";
+import { GQueryFilter, Row } from "./index";
 export declare function readImplementation(spreadsheetId: string, sheetName: string, options?: GQueryReadOptions): GQueryReadData;
 export declare function readManyImplementation(spreadsheetId: string, sheetNames: string[], options?: GQueryReadOptions): Record<string, GQueryReadData>;
 export type GQueryReadJoin = {
-    sheets: string[];
-    where?: (row: Record<string, any>) => boolean | Record<string, any>;
+    on?: Record<string, string>;
+    include?: string[];
 };
 export type GQueryReadOptions = {
     filter?: GQueryFilter;
-    join?: GQueryReadJoin;
+    join?: Record<string, GQueryReadJoin>;
     valueRenderOption?: ValueRenderOption;
     dateTimeRenderOption?: DateTimeRenderOption;
 };
 export type GQueryReadData = {
     headers: string[];
-    values: Record<string, Row>[];
-};
-export type Row = Record<string, any> & {
-    __meta: {
-        rowNum: number;
-        colLength: number;
-    };
+    values: Row[];
 };
 declare enum ValueRenderOption {
     FORMATTED_VALUE = "FORMATTED_VALUE",

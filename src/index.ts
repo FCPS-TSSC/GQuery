@@ -24,6 +24,15 @@ export class GQuery {
   readMany(sheetNames: string[], options?: GQueryReadOptions) {
     return readManyImplementation(this.spreadsheetId, sheetNames, options);
   }
+
+  update(sheetName: string, data: Row[]) {}
 }
 
 export type GQueryFilter = (row: any) => boolean;
+
+export type Row = Record<string, any> & {
+  __meta: {
+    rowNum: number;
+    colLength: number;
+  };
+};

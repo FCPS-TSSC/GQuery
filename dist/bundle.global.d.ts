@@ -1,23 +1,17 @@
 declare namespace GQuery {
   type GQueryReadJoin = {
-      sheets: string[];
-      where?: (row: Record<string, any>) => boolean | Record<string, any>;
+      on?: Record<string, string>;
+      include?: string[];
   };
   type GQueryReadOptions = {
       filter?: GQueryFilter;
-      join?: GQueryReadJoin;
+      join?: Record<string, GQueryReadJoin>;
       valueRenderOption?: ValueRenderOption;
       dateTimeRenderOption?: DateTimeRenderOption;
   };
   type GQueryReadData = {
       headers: string[];
-      values: Record<string, Row>[];
-  };
-  type Row = Record<string, any> & {
-      __meta: {
-          rowNum: number;
-          colLength: number;
-      };
+      values: Row[];
   };
   declare enum ValueRenderOption {
       FORMATTED_VALUE = "FORMATTED_VALUE",
@@ -34,11 +28,18 @@ declare namespace GQuery {
       constructor(spreadsheetId?: string);
       read(sheetName: string, options?: GQueryReadOptions): GQueryReadData;
       readMany(sheetNames: string[], options?: GQueryReadOptions): Record<string, GQueryReadData>;
+      update(sheetName: string, data: Row[]): void;
   }
   type GQueryFilter = (row: any) => boolean;
+  type Row = Record<string, any> & {
+      __meta: {
+          rowNum: number;
+          colLength: number;
+      };
+  };
   
   export { GQuery };
-  export type { GQueryFilter };
+  export type { GQueryFilter, Row };
   
 }
 declare var GQuery: typeof GQuery;
