@@ -10,7 +10,13 @@ type GQueryReadOptions = {
 };
 type GQueryReadData = {
     headers: string[];
-    values: Record<string, any>[];
+    values: Record<string, Row>[];
+};
+type Row = Record<string, any> & {
+    __meta: {
+        rowNum: number;
+        colLength: number;
+    };
 };
 declare enum ValueRenderOption {
     FORMATTED_VALUE = "FORMATTED_VALUE",

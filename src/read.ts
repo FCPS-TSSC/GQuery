@@ -8,40 +8,24 @@ export function readImplementation(
     valueRenderOption: ValueRenderOption.FORMATTED_VALUE,
   }
 ): GQueryReadData {
-  var sheets = Array.isArray(sheetName) ? sheetName : [sheetName];
+  var sheets = [sheetName];
   if (options?.join && "sheets" in options.join) {
     sheets = [...new Set([...sheets, ...options.join.sheets])];
   }
 
-  // Get sheet data using the Sheets API batchGet method
-  const batchResponse = Sheets?.Spreadsheets?.Values?.batchGet?.(
+  const optionsWithoutFilterJoin = {
+    valueRenderOption: options.valueRenderOption,
+    dateTimeRenderOption: options.dateTimeRenderOption,
+  };
+
+  const allSheetData = readManyImplementation(
     spreadsheetId,
-    {
-      ranges: sheets,
-      valueRenderOption: options?.valueRenderOption,
-      dateTimeRenderOption: options?.dateTimeRenderOption,
-    }
+    sheets,
+    optionsWithoutFilterJoin
   );
 
-  // Process the response into the expected format
-  const response: Record<string, { headers: string[]; rows: any[][] }> = {};
-
-  if (batchResponse && batchResponse.valueRanges) {
-    batchResponse.valueRanges.forEach((valueRange, index) => {
-      const currentSheet = sheets[index];
-      if (valueRange.values && valueRange.values.length > 0) {
-        response[currentSheet] = {
-          headers: valueRange.values[0],
-          rows: valueRange.values.slice(1).filter((row) => row.length > 0), // Filter out empty rows
-        };
-      } else {
-        response[currentSheet] = { headers: [], rows: [] };
-      }
-    });
-  }
-
-  // Process primary sheet data
-  let mainData = processSheetData(response[sheetName]);
+  // Get the main sheet data
+  let mainData = allSheetData[sheetName];
 
   // Apply filter if provided
   if (options?.filter) {
@@ -53,7 +37,12 @@ export function readImplementation(
 
   // Apply join if provided
   if (options?.join && options.join.sheets && options.join.sheets.length > 0) {
-    const joinedData = applyJoin(mainData, response, sheetName, options.join);
+    const joinedData = applyJoin(
+      mainData,
+      allSheetData,
+      Array.isArray(sheetName) ? sheetName[0] : sheetName,
+      options.join
+    );
     return joinedData;
   }
 
@@ -117,10 +106,18 @@ function processSheetData(sheetData: {
 
   const { headers, rows } = sheetData;
   const values = rows.map((row) => {
-    return row.reduce<Record<string, any>>((obj, cellValue, index) => {
-      obj[headers[index]] = cellValue;
-      return obj;
-    }, {});
+    return row.reduce<Record<string, any>>(
+      (obj, cellValue, index) => {
+        obj[headers[index]] = cellValue;
+        return obj;
+      },
+      {
+        __meta: {
+          rowNum: rows.indexOf(row) + 2, // +2 because headers are row 1, and rows is 0-based
+          colLength: row.length,
+        },
+      }
+    );
   });
 
   return { headers, values };
@@ -129,15 +126,15 @@ function processSheetData(sheetData: {
 // Helper function to apply join operations
 function applyJoin(
   mainData: GQueryReadData,
-  allSheetData: Record<string, { headers: string[]; rows: any[][] }>,
+  allSheetData: Record<string, GQueryReadData>,
   mainSheetName: string,
   join: GQueryReadJoin
 ): GQueryReadData {
-  // Process joined sheets data
+  // Since allSheetData now contains processed sheet data, we can use it directly
   const joinedSheetsData = join.sheets.reduce<Record<string, GQueryReadData>>(
     (acc, sheetName) => {
       if (allSheetData[sheetName]) {
-        acc[sheetName] = processSheetData(allSheetData[sheetName]);
+        acc[sheetName] = allSheetData[sheetName];
       }
       return acc;
     },
@@ -263,7 +260,14 @@ export type GQueryReadOptions = {
 
 export type GQueryReadData = {
   headers: string[];
-  values: Record<string, any>[];
+  values: Record<string, Row>[];
+};
+
+export type Row = Record<string, any> & {
+  __meta: {
+    rowNum: number;
+    colLength: number;
+  };
 };
 
 enum ValueRenderOption {

@@ -5,35 +5,17 @@ var GQuery = (function (exports) {
         dateTimeRenderOption: DateTimeRenderOption.FORMATTED_STRING,
         valueRenderOption: ValueRenderOption.FORMATTED_VALUE,
     }) {
-        var _a, _b, _c;
-        var sheets = Array.isArray(sheetName) ? sheetName : [sheetName];
+        var sheets = [sheetName];
         if ((options === null || options === void 0 ? void 0 : options.join) && "sheets" in options.join) {
             sheets = [...new Set([...sheets, ...options.join.sheets])];
         }
-        // Get sheet data using the Sheets API batchGet method
-        const batchResponse = (_c = (_b = (_a = Sheets === null || Sheets === void 0 ? void 0 : Sheets.Spreadsheets) === null || _a === void 0 ? void 0 : _a.Values) === null || _b === void 0 ? void 0 : _b.batchGet) === null || _c === void 0 ? void 0 : _c.call(_b, spreadsheetId, {
-            ranges: sheets,
-            valueRenderOption: options === null || options === void 0 ? void 0 : options.valueRenderOption,
-            dateTimeRenderOption: options === null || options === void 0 ? void 0 : options.dateTimeRenderOption,
-        });
-        // Process the response into the expected format
-        const response = {};
-        if (batchResponse && batchResponse.valueRanges) {
-            batchResponse.valueRanges.forEach((valueRange, index) => {
-                const currentSheet = sheets[index];
-                if (valueRange.values && valueRange.values.length > 0) {
-                    response[currentSheet] = {
-                        headers: valueRange.values[0],
-                        rows: valueRange.values.slice(1).filter((row) => row.length > 0), // Filter out empty rows
-                    };
-                }
-                else {
-                    response[currentSheet] = { headers: [], rows: [] };
-                }
-            });
-        }
-        // Process primary sheet data
-        let mainData = processSheetData(response[sheetName]);
+        const optionsWithoutFilterJoin = {
+            valueRenderOption: options.valueRenderOption,
+            dateTimeRenderOption: options.dateTimeRenderOption,
+        };
+        const allSheetData = readManyImplementation(spreadsheetId, sheets, optionsWithoutFilterJoin);
+        // Get the main sheet data
+        let mainData = allSheetData[sheetName];
         // Apply filter if provided
         if (options === null || options === void 0 ? void 0 : options.filter) {
             mainData = {
@@ -43,7 +25,7 @@ var GQuery = (function (exports) {
         }
         // Apply join if provided
         if ((options === null || options === void 0 ? void 0 : options.join) && options.join.sheets && options.join.sheets.length > 0) {
-            const joinedData = applyJoin(mainData, response, sheetName, options.join);
+            const joinedData = applyJoin(mainData, allSheetData, Array.isArray(sheetName) ? sheetName[0] : sheetName, options.join);
             return joinedData;
         }
         return mainData;
@@ -94,16 +76,21 @@ var GQuery = (function (exports) {
             return row.reduce((obj, cellValue, index) => {
                 obj[headers[index]] = cellValue;
                 return obj;
-            }, {});
+            }, {
+                __meta: {
+                    rowNum: rows.indexOf(row) + 2, // +2 because headers are row 1, and rows is 0-based
+                    colLength: row.length,
+                },
+            });
         });
         return { headers, values };
     }
     // Helper function to apply join operations
     function applyJoin(mainData, allSheetData, mainSheetName, join) {
-        // Process joined sheets data
+        // Since allSheetData now contains processed sheet data, we can use it directly
         const joinedSheetsData = join.sheets.reduce((acc, sheetName) => {
             if (allSheetData[sheetName]) {
-                acc[sheetName] = processSheetData(allSheetData[sheetName]);
+                acc[sheetName] = allSheetData[sheetName];
             }
             return acc;
         }, {});
