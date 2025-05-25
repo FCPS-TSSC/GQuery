@@ -4,6 +4,11 @@ import {
   readManyImplementation,
 } from "./read";
 import { GQueryUpdateOptions, updateImplementation } from "./update";
+import {
+  GQueryCreateOptions,
+  createImplementation,
+  CreateResult,
+} from "./create";
 
 export class GQuery {
   spreadsheetId: string;
@@ -14,9 +19,13 @@ export class GQuery {
       : SpreadsheetApp.getActiveSpreadsheet().getId();
   }
 
-  //   create(sheetName: string, data: any[]) {
-  //     // TODO:
-  //   }
+  create(
+    sheetName: string,
+    data: Record<string, any>[],
+    options?: GQueryCreateOptions
+  ): CreateResult {
+    return createImplementation(this.spreadsheetId, sheetName, data, options);
+  }
 
   read(sheetName: string, options?: GQueryReadOptions) {
     return readImplementation(this.spreadsheetId, sheetName, options);

@@ -25,9 +25,45 @@ type GQueryReadData = {
     values: Row[];
 };
 
+/**
+ * Options for creating data in a Google Sheet
+ */
+interface GQueryCreateOptions {
+    /**
+     * How values should be rendered in the response
+     */
+    responseValueRenderOption?: ValueRenderOption;
+    /**
+     * How dates, times, and durations should be rendered in the response
+     */
+    responseDateTimeRenderOption?: DateTimeRenderOption;
+    /**
+     * Whether to include values in the response
+     */
+    includeValuesInResponse?: boolean;
+}
+/**
+ * Result of a create operation
+ */
+interface CreateResult {
+    /**
+     * The number of rows created
+     */
+    createdRows: number;
+    /**
+     * The sheet name where data was created
+     */
+    sheetName: string;
+    /**
+     * The values that were added (if includeValuesInResponse is true)
+     */
+    addedRows?: any[][];
+}
+
 declare class GQuery {
     spreadsheetId: string;
     constructor(spreadsheetId?: string);
+    create(sheetName: string, data: Record<string, any>[], options?: GQueryCreateOptions): CreateResult;
     read(sheetName: string, options?: GQueryReadOptions): GQueryReadData;
     readMany(sheetNames: string[], options?: GQueryReadOptions): Record<string, GQueryReadData>;
     update(sheetName: string, data: Row[], options?: GQueryUpdateOptions): UpdateResult;
