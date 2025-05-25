@@ -5,16 +5,17 @@ var GQuery = (function (exports) {
         dateTimeRenderOption: DateTimeRenderOption.FORMATTED_STRING,
         valueRenderOption: ValueRenderOption.FORMATTED_VALUE,
     }) {
+        var _a, _b, _c;
         var sheets = Array.isArray(sheetName) ? sheetName : [sheetName];
-        if (options?.join && "sheets" in options.join) {
+        if ((options === null || options === void 0 ? void 0 : options.join) && "sheets" in options.join) {
             sheets = [...new Set([...sheets, ...options.join.sheets])];
         }
         // Get sheet data using the Sheets API batchGet method
         const ranges = sheets.map((sheet) => `${sheet}!A:ZZ`); // Get all data from each sheet
-        const batchResponse = Sheets?.Spreadsheets?.Values?.batchGet?.(spreadsheetId, {
+        const batchResponse = (_c = (_b = (_a = Sheets === null || Sheets === void 0 ? void 0 : Sheets.Spreadsheets) === null || _a === void 0 ? void 0 : _a.Values) === null || _b === void 0 ? void 0 : _b.batchGet) === null || _c === void 0 ? void 0 : _c.call(_b, spreadsheetId, {
             ranges: ranges,
-            valueRenderOption: options?.valueRenderOption,
-            dateTimeRenderOption: options?.dateTimeRenderOption,
+            valueRenderOption: options === null || options === void 0 ? void 0 : options.valueRenderOption,
+            dateTimeRenderOption: options === null || options === void 0 ? void 0 : options.dateTimeRenderOption,
         });
         // Process the response into the expected format
         const response = {};
@@ -35,14 +36,14 @@ var GQuery = (function (exports) {
         // Process primary sheet data
         let mainData = processSheetData(response[sheetName]);
         // Apply filter if provided
-        if (options?.filter) {
+        if (options === null || options === void 0 ? void 0 : options.filter) {
             mainData = {
                 headers: mainData.headers,
                 values: mainData.values.filter((row) => options.filter(row)),
             };
         }
         // Apply join if provided
-        if (options?.join && options.join.sheets && options.join.sheets.length > 0) {
+        if ((options === null || options === void 0 ? void 0 : options.join) && options.join.sheets && options.join.sheets.length > 0) {
             const joinedData = applyJoin(mainData, response, sheetName, options.join);
             return joinedData;
         }
@@ -124,7 +125,7 @@ var GQuery = (function (exports) {
                 // Only include the values from the original item and specifically returned properties
                 result.values = mainData.values.map((originalItem) => {
                     // Start with the original item
-                    const resultItem = { ...originalItem };
+                    const resultItem = Object.assign({}, originalItem);
                     // Only add the specific properties from the captured return value
                     if (capturedReturnValue) {
                         Object.keys(capturedReturnValue).forEach((key) => {
@@ -173,7 +174,6 @@ var GQuery = (function (exports) {
     })(DateTimeRenderOption || (DateTimeRenderOption = {}));
 
     class GQuery {
-        spreadsheetId;
         constructor(spreadsheetId) {
             this.spreadsheetId = spreadsheetId
                 ? spreadsheetId
