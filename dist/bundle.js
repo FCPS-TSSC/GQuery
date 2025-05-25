@@ -145,32 +145,16 @@ function applyJoin(mainData, allSheetData, mainSheetName, join) {
  * Updates rows in a Google Sheet
  * @param spreadsheetId The ID of the spreadsheet
  * @param sheetName The name of the sheet to update
- * @param target Array of row objects to update
- * @param updateData Object containing field values to update
+ * @param data Array of row objects to update
  * @param options Additional options for the update operation
  * @returns Object containing update statistics
  */
-function updateImplementation(spreadsheetId, sheetName, target, updateData, options) {
-    if (!target || target.length === 0) {
+function updateImplementation(spreadsheetId, sheetName, data, options) {
+    if (!data || data.length === 0) {
         return { updatedRows: 0 };
     }
-    // Apply the updateData object to each row
-    const updatedRows = target.map((row) => {
-        // Create a shallow copy of the row
-        const updatedRow = Object.assign({}, row);
-        // Apply all updates from updateData object
-        Object.entries(updateData).forEach(([key, value]) => {
-            if (key !== "__meta") {
-                // Protect __meta from being modified
-                // Support function values that can use the current row
-                updatedRow[key] = typeof value === "function" ? value(row) : value;
-            }
-        });
-        return updatedRow;
-    });
-    console.log("Updated Rows:", updatedRows);
     // Sort data by row number to optimize updates
-    const sortedData = [...updatedRows].sort((a, b) => a.__meta.rowNum - b.__meta.rowNum);
+    const sortedData = [...data].sort((a, b) => a.__meta.rowNum - b.__meta.rowNum);
     // Get all headers from the data to ensure we update all fields
     const allHeaders = new Set();
     sortedData.forEach((row) => {
@@ -282,8 +266,8 @@ class GQuery {
     readMany(sheetNames, options) {
         return readManyImplementation(this.spreadsheetId, sheetNames, options);
     }
-    update(sheetName, target, updateData, options) {
-        return updateImplementation(this.spreadsheetId, sheetName, target, updateData, options);
+    update(sheetName, data, options) {
+        return updateImplementation(this.spreadsheetId, sheetName, data, options);
     }
 }
 var ValueRenderOption;

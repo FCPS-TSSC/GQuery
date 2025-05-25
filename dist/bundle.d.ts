@@ -30,7 +30,7 @@ declare class GQuery {
     constructor(spreadsheetId?: string);
     read(sheetName: string, options?: GQueryReadOptions): GQueryReadData;
     readMany(sheetNames: string[], options?: GQueryReadOptions): Record<string, GQueryReadData>;
-    update(sheetName: string, target: Row[], updateData: Record<string, any>, options?: GQueryUpdateOptions): UpdateResult;
+    update(sheetName: string, data: Row[], options?: GQueryUpdateOptions): UpdateResult;
 }
 type GQueryFilter = (row: any) => boolean;
 type Row = Record<string, any> & {

@@ -4,43 +4,22 @@ import { DateTimeRenderOption, Row, ValueRenderOption } from "./index";
  * Updates rows in a Google Sheet
  * @param spreadsheetId The ID of the spreadsheet
  * @param sheetName The name of the sheet to update
- * @param target Array of row objects to update
- * @param updateData Object containing field values to update
+ * @param data Array of row objects to update
  * @param options Additional options for the update operation
  * @returns Object containing update statistics
  */
 export function updateImplementation(
   spreadsheetId: string,
   sheetName: string,
-  target: Row[],
-  updateData: Record<string, any>,
+  data: Row[],
   options?: GQueryUpdateOptions
 ): UpdateResult {
-  if (!target || target.length === 0) {
+  if (!data || data.length === 0) {
     return { updatedRows: 0 };
   }
 
-  // Apply the updateData object to each row
-  const updatedRows = target.map((row) => {
-    // Create a shallow copy of the row
-    const updatedRow = { ...row };
-
-    // Apply all updates from updateData object
-    Object.entries(updateData).forEach(([key, value]) => {
-      if (key !== "__meta") {
-        // Protect __meta from being modified
-        // Support function values that can use the current row
-        updatedRow[key] = typeof value === "function" ? value(row) : value;
-      }
-    });
-
-    return updatedRow;
-  });
-
-  console.log("Updated Rows:", updatedRows);
-
   // Sort data by row number to optimize updates
-  const sortedData = [...updatedRows].sort(
+  const sortedData = [...data].sort(
     (a, b) => a.__meta.rowNum - b.__meta.rowNum
   );
 

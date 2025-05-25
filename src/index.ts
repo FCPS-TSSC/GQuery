@@ -26,19 +26,8 @@ export class GQuery {
     return readManyImplementation(this.spreadsheetId, sheetNames, options);
   }
 
-  update(
-    sheetName: string,
-    target: Row[],
-    updateData: Record<string, any>,
-    options?: GQueryUpdateOptions
-  ) {
-    return updateImplementation(
-      this.spreadsheetId,
-      sheetName,
-      target,
-      updateData,
-      options
-    );
+  update(sheetName: string, data: Row[], options?: GQueryUpdateOptions) {
+    return updateImplementation(this.spreadsheetId, sheetName, data, options);
   }
 }
 

@@ -5,7 +5,7 @@ export declare class GQuery {
     constructor(spreadsheetId?: string);
     read(sheetName: string, options?: GQueryReadOptions): import("./read").GQueryReadData;
     readMany(sheetNames: string[], options?: GQueryReadOptions): Record<string, import("./read").GQueryReadData>;
-    update(sheetName: string, target: Row[], updateData: Record<string, any>, options?: GQueryUpdateOptions): import("./update").UpdateResult;
+    update(sheetName: string, data: Row[], options?: GQueryUpdateOptions): import("./update").UpdateResult;
 }
 export type GQueryFilter = (row: any) => boolean;
 export type Row = Record<string, any> & {
