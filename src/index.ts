@@ -1,4 +1,8 @@
-import { GQueryReadOptions, readImplementation } from "./read";
+import {
+  GQueryReadOptions,
+  readImplementation,
+  readManyImplementation,
+} from "./read";
 
 export class GQuery {
   spreadsheetId: string;
@@ -17,8 +21,8 @@ export class GQuery {
     return readImplementation(this.spreadsheetId, sheetName, options);
   }
 
-  readMany(sheetNames: string[]) {
-    // TODO:
+  readMany(sheetNames: string[], options?: GQueryReadOptions) {
+    return readManyImplementation(this.spreadsheetId, sheetNames, options);
   }
 }
 

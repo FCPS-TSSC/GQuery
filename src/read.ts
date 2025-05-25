@@ -14,11 +14,10 @@ export function readImplementation(
   }
 
   // Get sheet data using the Sheets API batchGet method
-  const ranges = sheets.map((sheet) => `${sheet}!A:ZZ`); // Get all data from each sheet
   const batchResponse = Sheets?.Spreadsheets?.Values?.batchGet?.(
     spreadsheetId,
     {
-      ranges: ranges,
+      ranges: sheets,
       valueRenderOption: options?.valueRenderOption,
       dateTimeRenderOption: options?.dateTimeRenderOption,
     }
@@ -59,6 +58,52 @@ export function readImplementation(
   }
 
   return mainData;
+}
+
+export function readManyImplementation(
+  spreadsheetId: string,
+  sheetNames: string[],
+  options: GQueryReadOptions = {
+    dateTimeRenderOption: DateTimeRenderOption.FORMATTED_STRING,
+    valueRenderOption: ValueRenderOption.FORMATTED_VALUE,
+  }
+): Record<string, GQueryReadData> {
+  if (options.filter || options.join) {
+    throw new Error(
+      "Filter and join options are not supported in readManyImplementation."
+    );
+  }
+  // Get sheet data using the Sheets API batchGet method
+  const batchResponse = Sheets?.Spreadsheets?.Values?.batchGet?.(
+    spreadsheetId,
+    {
+      ranges: sheetNames,
+      valueRenderOption: options?.valueRenderOption,
+      dateTimeRenderOption: options?.dateTimeRenderOption,
+    }
+  );
+
+  // Process the response into the expected format
+  const response: Record<string, { headers: string[]; rows: any[][] }> = {};
+
+  if (batchResponse && batchResponse.valueRanges) {
+    batchResponse.valueRanges.forEach((valueRange, index) => {
+      const currentSheet = sheetNames[index];
+      if (valueRange.values && valueRange.values.length > 0) {
+        response[currentSheet] = {
+          headers: valueRange.values[0],
+          rows: valueRange.values.slice(1).filter((row) => row.length > 0), // Filter out empty rows
+        };
+      } else {
+        response[currentSheet] = { headers: [], rows: [] };
+      }
+    });
+  }
+  return sheetNames.reduce<Record<string, GQueryReadData>>((acc, sheetName) => {
+    const sheetData = response[sheetName];
+    acc[sheetName] = processSheetData(sheetData);
+    return acc;
+  }, {});
 }
 
 // Helper function to process raw sheet data into rows with header keys

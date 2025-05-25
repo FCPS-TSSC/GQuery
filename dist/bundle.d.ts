@@ -26,7 +26,7 @@ declare class GQuery {
     spreadsheetId: string;
     constructor(spreadsheetId?: string);
     read(sheetName: string, options?: GQueryReadOptions): GQueryReadData;
-    readMany(sheetNames: string[]): void;
+    readMany(sheetNames: string[], options?: GQueryReadOptions): Record<string, GQueryReadData>;
 }
 type GQueryFilter = (row: any) => boolean;
 

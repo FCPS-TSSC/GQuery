@@ -1,5 +1,6 @@
 import { GQueryFilter } from "./index";
 export declare function readImplementation(spreadsheetId: string, sheetName: string, options?: GQueryReadOptions): GQueryReadData;
+export declare function readManyImplementation(spreadsheetId: string, sheetNames: string[], options?: GQueryReadOptions): Record<string, GQueryReadData>;
 export type GQueryReadJoin = {
     sheets: string[];
     where?: (row: Record<string, any>) => boolean | Record<string, any>;

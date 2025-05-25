@@ -11,9 +11,8 @@ var GQuery = (function (exports) {
             sheets = [...new Set([...sheets, ...options.join.sheets])];
         }
         // Get sheet data using the Sheets API batchGet method
-        const ranges = sheets.map((sheet) => `${sheet}!A:ZZ`); // Get all data from each sheet
         const batchResponse = (_c = (_b = (_a = Sheets === null || Sheets === void 0 ? void 0 : Sheets.Spreadsheets) === null || _a === void 0 ? void 0 : _a.Values) === null || _b === void 0 ? void 0 : _b.batchGet) === null || _c === void 0 ? void 0 : _c.call(_b, spreadsheetId, {
-            ranges: ranges,
+            ranges: sheets,
             valueRenderOption: options === null || options === void 0 ? void 0 : options.valueRenderOption,
             dateTimeRenderOption: options === null || options === void 0 ? void 0 : options.dateTimeRenderOption,
         });
@@ -48,6 +47,42 @@ var GQuery = (function (exports) {
             return joinedData;
         }
         return mainData;
+    }
+    function readManyImplementation(spreadsheetId, sheetNames, options = {
+        dateTimeRenderOption: DateTimeRenderOption.FORMATTED_STRING,
+        valueRenderOption: ValueRenderOption.FORMATTED_VALUE,
+    }) {
+        var _a, _b, _c;
+        if (options.filter || options.join) {
+            throw new Error("Filter and join options are not supported in readManyImplementation.");
+        }
+        // Get sheet data using the Sheets API batchGet method
+        const batchResponse = (_c = (_b = (_a = Sheets === null || Sheets === void 0 ? void 0 : Sheets.Spreadsheets) === null || _a === void 0 ? void 0 : _a.Values) === null || _b === void 0 ? void 0 : _b.batchGet) === null || _c === void 0 ? void 0 : _c.call(_b, spreadsheetId, {
+            ranges: sheetNames,
+            valueRenderOption: options === null || options === void 0 ? void 0 : options.valueRenderOption,
+            dateTimeRenderOption: options === null || options === void 0 ? void 0 : options.dateTimeRenderOption,
+        });
+        // Process the response into the expected format
+        const response = {};
+        if (batchResponse && batchResponse.valueRanges) {
+            batchResponse.valueRanges.forEach((valueRange, index) => {
+                const currentSheet = sheetNames[index];
+                if (valueRange.values && valueRange.values.length > 0) {
+                    response[currentSheet] = {
+                        headers: valueRange.values[0],
+                        rows: valueRange.values.slice(1).filter((row) => row.length > 0), // Filter out empty rows
+                    };
+                }
+                else {
+                    response[currentSheet] = { headers: [], rows: [] };
+                }
+            });
+        }
+        return sheetNames.reduce((acc, sheetName) => {
+            const sheetData = response[sheetName];
+            acc[sheetName] = processSheetData(sheetData);
+            return acc;
+        }, {});
     }
     // Helper function to process raw sheet data into rows with header keys
     function processSheetData(sheetData) {
@@ -185,8 +220,8 @@ var GQuery = (function (exports) {
         read(sheetName, options) {
             return readImplementation(this.spreadsheetId, sheetName, options);
         }
-        readMany(sheetNames) {
-            // TODO:
+        readMany(sheetNames, options) {
+            return readManyImplementation(this.spreadsheetId, sheetNames, options);
         }
     }
 
