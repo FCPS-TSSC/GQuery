@@ -1,16 +1,55 @@
-import { GQueryReadOptions } from "./read";
-import { GQueryUpdateOptions } from "./update";
-import { GQueryCreateOptions, CreateResult } from "./create";
 export declare class GQuery {
     spreadsheetId: string;
     constructor(spreadsheetId?: string);
-    create(sheetName: string, data: Record<string, any>[], options?: GQueryCreateOptions): CreateResult;
-    read(sheetName: string, options?: GQueryReadOptions): import("./read").GQueryReadData;
-    readMany(sheetNames: string[], options?: GQueryReadOptions): Record<string, import("./read").GQueryReadData>;
-    update(sheetName: string, data: Row[], options?: GQueryUpdateOptions): import("./update").UpdateResult;
+    from(sheetName: string): GQueryTable;
+    getMany(sheetNames: string[], options?: GQueryReadOptions): {
+        [sheetName: string]: GQueryResult;
+    };
 }
-export type GQueryFilter = (row: any) => boolean;
-export type Row = Record<string, any> & {
+/**
+ * Idea end result:
+ * user calls from("Sheet1")
+ * if user calls .select(["Id", "Name"]) -- only return Id Name columns after read() is called
+ * if user calls .filter((row) => row.Id === 1) -- only return rows where Id === 1 after read() is called
+ * if user calls .join("Models", "Model", "Model_Name") -- join Models sheet on Model_Name (Models sheet) and Model (current sheet)
+ * once read() is called, it will return the result of the query
+ */
+export declare class GQueryTable {
+    spreadsheetId: string;
+    spreadsheet: GoogleAppsScript.Spreadsheet.Spreadsheet;
+    sheetName: string;
+    sheet: GoogleAppsScript.Spreadsheet.Sheet;
+    constructor(spreadsheetId: string, sheetName: string);
+    select(headers: string[]): GQueryTableFactory;
+    where(filterFn: (row: any) => boolean): GQueryTableFactory;
+    join(sheetName: string, sheetColumn: string, joinColumn: string, columnsToReturn?: string[]): GQueryTableFactory;
+    read(): GQueryResult;
+}
+declare class GQueryTableFactory {
+    gQueryTable: GQueryTable;
+    selectOption?: string[];
+    filterOption?: (row: any) => boolean;
+    joinOption: {
+        sheetName: string;
+        sheetColumn: string;
+        joinColumn: string;
+        columnsToReturn?: string[];
+    }[];
+    constructor(GQueryTable: GQueryTable);
+    select(headers: string[]): GQueryTableFactory;
+    where(filterFn: (row: any) => boolean): GQueryTableFactory;
+    join(sheetName: string, sheetColumn: string, joinColumn: string, columnsToReturn?: string[]): GQueryTableFactory;
+    get(): GQueryResult;
+}
+export type GQueryReadOptions = {
+    valueRenderOption?: ValueRenderOption;
+    dateTimeRenderOption?: DateTimeRenderOption;
+};
+export type GQueryResult = {
+    rows: GQueryRow[];
+    headers: string[];
+};
+export type GQueryRow = Record<string, any> & {
     __meta: {
         rowNum: number;
         colLength: number;
@@ -25,3 +64,4 @@ export declare enum DateTimeRenderOption {
     FORMATTED_STRING = "FORMATTED_STRING",
     SERIAL_NUMBER = "SERIAL_NUMBER"
 }
+export {};
