@@ -76,7 +76,7 @@ export class GQueryTable {
     return appendInternal(this, dataArray);
   }
 
-  read(options?: GQueryReadOptions): GQueryResult {
+  get(options?: GQueryReadOptions): GQueryResult {
     return new GQueryTableFactory(this).get(options);
   }
 }

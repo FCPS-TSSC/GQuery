@@ -22,7 +22,7 @@ export declare class GQueryTable {
     }[] | {
         [key: string]: any;
     }): GQueryResult;
-    read(options?: GQueryReadOptions): GQueryResult;
+    get(options?: GQueryReadOptions): GQueryResult;
 }
 export declare class GQueryTableFactory {
     gQueryTable: GQueryTable;

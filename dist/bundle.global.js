@@ -641,7 +641,7 @@ var GQuery = (function (exports) {
             const dataArray = Array.isArray(data) ? data : [data];
             return appendInternal(this, dataArray);
         }
-        read(options) {
+        get(options) {
             return new GQueryTableFactory(this).get(options);
         }
     }
