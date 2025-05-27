@@ -79,7 +79,8 @@ export function getManyInternal(
 }
 
 export function getInternal(
-  gqueryTableFactory: GQueryTableFactory
+  gqueryTableFactory: GQueryTableFactory,
+  options?: GQueryReadOptions
 ): GQueryResult {
   const gqueryTable = gqueryTableFactory.gQueryTable;
   const gquery = gqueryTable.gquery;
@@ -96,7 +97,7 @@ export function getInternal(
   }
 
   // Read data from all required sheets at once
-  const results = gquery.getMany(sheetsToRead);
+  const results = gquery.getMany(sheetsToRead, options);
 
   // If the main sheet doesn't exist or has no data
   if (

@@ -46,7 +46,7 @@ function getManyInternal(gquery, sheetNames, options) {
     });
     return result;
 }
-function getInternal(gqueryTableFactory) {
+function getInternal(gqueryTableFactory, options) {
     const gqueryTable = gqueryTableFactory.gQueryTable;
     const gquery = gqueryTable.gquery;
     // Determine which sheets we need to read from
@@ -60,7 +60,7 @@ function getInternal(gqueryTableFactory) {
         });
     }
     // Read data from all required sheets at once
-    const results = gquery.getMany(sheetsToRead);
+    const results = gquery.getMany(sheetsToRead, options);
     // If the main sheet doesn't exist or has no data
     if (!results[gqueryTable.sheetName] ||
         results[gqueryTable.sheetName].rows.length === 0) {
@@ -374,6 +374,9 @@ function appendInternal(table, data) {
     const appendResponse = Sheets.Spreadsheets.Values.append({ values: rowsToAppend }, spreadsheetId, `${sheetName}`, {
         valueInputOption: "USER_ENTERED",
         insertDataOption: "INSERT_ROWS",
+        responseValueRenderOption: "FORMATTED_VALUE",
+        responseDateTimeRenderOption: "FORMATTED_STRING",
+        includeValuesInResponse: true,
     });
     // Check if append was successful
     if (!appendResponse ||
@@ -448,8 +451,8 @@ class GQueryTable {
         const dataArray = Array.isArray(data) ? data : [data];
         return appendInternal(this, dataArray);
     }
-    read() {
-        return new GQueryTableFactory(this).get();
+    read(options) {
+        return new GQueryTableFactory(this).get(options);
     }
 }
 class GQueryTableFactory {
@@ -474,8 +477,8 @@ class GQueryTableFactory {
         });
         return this;
     }
-    get() {
-        return getInternal(this);
+    get(options) {
+        return getInternal(this, options);
     }
     update(updateFn) {
         return updateInternal(this, updateFn);

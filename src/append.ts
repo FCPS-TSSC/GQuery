@@ -42,6 +42,9 @@ export function appendInternal(
     {
       valueInputOption: "USER_ENTERED",
       insertDataOption: "INSERT_ROWS",
+      responseValueRenderOption: "FORMATTED_VALUE",
+      responseDateTimeRenderOption: "FORMATTED_STRING",
+      includeValuesInResponse: true,
     }
   );
 

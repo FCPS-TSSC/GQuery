@@ -22,7 +22,7 @@ declare class GQueryTable {
     }[] | {
         [key: string]: any;
     }): GQueryResult;
-    read(): GQueryResult;
+    read(options?: GQueryReadOptions): GQueryResult;
 }
 declare class GQueryTableFactory {
     gQueryTable: GQueryTable;
@@ -38,7 +38,7 @@ declare class GQueryTableFactory {
     select(headers: string[]): GQueryTableFactory;
     where(filterFn: (row: any) => boolean): GQueryTableFactory;
     join(sheetName: string, sheetColumn: string, joinColumn: string, columnsToReturn?: string[]): GQueryTableFactory;
-    get(): GQueryResult;
+    get(options?: GQueryReadOptions): GQueryResult;
     update(updateFn: (row: Record<string, any>) => Record<string, any>): GQueryResult;
     append(data: {
         [key: string]: any;

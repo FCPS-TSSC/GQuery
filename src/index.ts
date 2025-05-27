@@ -76,8 +76,8 @@ export class GQueryTable {
     return appendInternal(this, dataArray);
   }
 
-  read(): GQueryResult {
-    return new GQueryTableFactory(this).get();
+  read(options?: GQueryReadOptions): GQueryResult {
+    return new GQueryTableFactory(this).get(options);
   }
 }
 
@@ -121,8 +121,8 @@ export class GQueryTableFactory {
     return this;
   }
 
-  get(): GQueryResult {
-    return getInternal(this);
+  get(options?: GQueryReadOptions): GQueryResult {
+    return getInternal(this, options);
   }
 
   update(
