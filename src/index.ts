@@ -1,4 +1,5 @@
 import { getInternal, getManyInternal } from "./get";
+import { updateInternal } from "./update";
 
 export class GQuery {
   spreadsheetId: string;
@@ -67,6 +68,12 @@ export class GQueryTable {
     );
   }
 
+  update(
+    updateFn: (row: Record<string, any>) => Record<string, any>
+  ): GQueryResult {
+    return new GQueryTableFactory(this).update(updateFn);
+  }
+
   read(): GQueryResult {
     return new GQueryTableFactory(this).get();
   }
@@ -114,6 +121,12 @@ export class GQueryTableFactory {
 
   get(): GQueryResult {
     return getInternal(this);
+  }
+
+  update(
+    updateFn?: (row: Record<string, any>) => Record<string, any>
+  ): GQueryResult {
+    return updateInternal(this, updateFn);
   }
 }
 

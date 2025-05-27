@@ -24,6 +24,7 @@ declare class GQueryTable {
     select(headers: string[]): GQueryTableFactory;
     where(filterFn: (row: any) => boolean): GQueryTableFactory;
     join(sheetName: string, sheetColumn: string, joinColumn: string, columnsToReturn?: string[]): GQueryTableFactory;
+    update(updateFn: (row: Record<string, any>) => Record<string, any>): GQueryResult;
     read(): GQueryResult;
 }
 declare class GQueryTableFactory {
@@ -41,6 +42,7 @@ declare class GQueryTableFactory {
     where(filterFn: (row: any) => boolean): GQueryTableFactory;
     join(sheetName: string, sheetColumn: string, joinColumn: string, columnsToReturn?: string[]): GQueryTableFactory;
     get(): GQueryResult;
+    update(updateFn?: (row: Record<string, any>) => Record<string, any>): GQueryResult;
 }
 type GQueryReadOptions = {
     valueRenderOption?: ValueRenderOption;
