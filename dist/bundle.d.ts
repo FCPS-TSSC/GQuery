@@ -1,3 +1,27 @@
+type GQueryReadOptions = {
+    valueRenderOption?: ValueRenderOption;
+    dateTimeRenderOption?: DateTimeRenderOption;
+};
+type GQueryResult = {
+    rows: GQueryRow[];
+    headers: string[];
+};
+type GQueryRow = Record<string, any> & {
+    __meta: {
+        rowNum: number;
+        colLength: number;
+    };
+};
+declare enum ValueRenderOption {
+    FORMATTED_VALUE = "FORMATTED_VALUE",
+    UNFORMATTED_VALUE = "UNFORMATTED_VALUE",
+    FORMULA = "FORMULA"
+}
+declare enum DateTimeRenderOption {
+    FORMATTED_STRING = "FORMATTED_STRING",
+    SERIAL_NUMBER = "SERIAL_NUMBER"
+}
+
 declare class GQuery {
     spreadsheetId: string;
     constructor(spreadsheetId?: string);
@@ -23,6 +47,10 @@ declare class GQueryTable {
         [key: string]: any;
     }): GQueryResult;
     get(options?: GQueryReadOptions): GQueryResult;
+    query(query: string): GQueryResult;
+    delete(): {
+        deletedRows: number;
+    };
 }
 declare class GQueryTableFactory {
     gQueryTable: GQueryTable;
@@ -45,30 +73,9 @@ declare class GQueryTableFactory {
     }[] | {
         [key: string]: any;
     }): GQueryResult;
-}
-type GQueryReadOptions = {
-    valueRenderOption?: ValueRenderOption;
-    dateTimeRenderOption?: DateTimeRenderOption;
-};
-type GQueryResult = {
-    rows: GQueryRow[];
-    headers: string[];
-};
-type GQueryRow = Record<string, any> & {
-    __meta: {
-        rowNum: number;
-        colLength: number;
+    delete(): {
+        deletedRows: number;
     };
-};
-declare enum ValueRenderOption {
-    FORMATTED_VALUE = "FORMATTED_VALUE",
-    UNFORMATTED_VALUE = "UNFORMATTED_VALUE",
-    FORMULA = "FORMULA"
-}
-declare enum DateTimeRenderOption {
-    FORMATTED_STRING = "FORMATTED_STRING",
-    SERIAL_NUMBER = "SERIAL_NUMBER"
 }
 
-export { DateTimeRenderOption, GQuery, GQueryTable, GQueryTableFactory, ValueRenderOption };
-export type { GQueryReadOptions, GQueryResult, GQueryRow };
+export { GQuery, GQueryTable, GQueryTableFactory };

@@ -1,13 +1,11 @@
+import { GQuery, GQueryTable, GQueryTableFactory } from "./index";
 import {
-  DateTimeRenderOption,
-  GQuery,
   GQueryReadOptions,
   GQueryResult,
-  GQueryRow,
-  GQueryTable,
-  GQueryTableFactory,
   ValueRenderOption,
-} from "./index";
+  DateTimeRenderOption,
+  GQueryRow,
+} from "./types";
 
 export function getManyInternal(
   gquery: GQuery,
@@ -442,5 +440,106 @@ export function getInternal(
   return {
     headers,
     rows,
+  };
+}
+
+export function queryInternal(
+  gqueryTable: GQueryTable,
+  query: string
+): GQueryResult {
+  var sheet = gqueryTable.sheet;
+  var range = sheet.getDataRange();
+  var replaced = query;
+  for (var i = 0; i < range.getLastColumn() - 1; i++) {
+    var rng = sheet.getRange(1, i + 1);
+
+    var name = rng.getValue();
+    var letter = rng.getA1Notation().match(/([A-Z]+)/)[0];
+    replaced = replaced.replaceAll(name, letter);
+  }
+
+  var response = UrlFetchApp.fetch(
+    Utilities.formatString(
+      "https://docs.google.com/spreadsheets/d/%s/gviz/tq?tq=%s%s%s%s",
+      sheet.getParent().getId(),
+      encodeURIComponent(replaced),
+      "&sheet=" + sheet.getName(),
+      typeof range === "string" ? "&range=" + range : "",
+      "&headers=1"
+    ),
+    {
+      headers: {
+        Authorization: "Bearer " + ScriptApp.getOAuthToken(),
+      },
+    }
+  );
+
+  var jsonResponse = JSON.parse(
+      response
+        .getContentText()
+        .replace("/*O_o*/\n", "")
+        .replace(/(google\.visualization\.Query\.setResponse\()|(\);)/gm, "")
+    ),
+    table = jsonResponse.table;
+
+  // Extract column headers
+  const headers = table.cols.map((col: any) => col.label);
+
+  // Map rows to proper GQueryRow format
+  const rows = table.rows.map((row: any, _rowIndex: number) => {
+    const rowObj: GQueryRow = {
+      __meta: {
+        rowNum: -1, // +2 because we're starting from index 0 and row 1 is headers
+        colLength: row.c.length,
+      },
+    };
+
+    // Initialize all header fields to empty strings
+    headers.forEach((header: string) => {
+      rowObj[header] = "";
+    });
+
+    // Populate row data
+    table.cols.forEach((col: any, colIndex: number) => {
+      const cellData = row.c[colIndex];
+      if (cellData) {
+        // Use formatted value if available, otherwise use raw value
+        let value =
+          cellData.f !== null && cellData.f !== undefined
+            ? cellData.f
+            : cellData.v;
+
+        // Convert known data types
+        if (value instanceof Date) {
+          // Keep as Date object
+        } else if (typeof value === "string") {
+          // Try to auto-detect date strings
+          if (
+            /^\d{1,2}\/\d{1,2}\/\d{4}(\s\d{1,2}:\d{1,2}(:\d{1,2})?)?$/.test(
+              value
+            )
+          ) {
+            try {
+              const dateValue = new Date(value);
+              if (!isNaN(dateValue.getTime())) {
+                value = dateValue;
+              }
+            } catch (e) {
+              // Keep as string if conversion fails
+            }
+          }
+        }
+
+        rowObj[col.label] = value;
+      }
+    });
+
+    return rowObj;
+  });
+
+  // Return in the standard GQueryResult format
+  return {
+    headers: headers,
+    rows: rows,
   };
 }

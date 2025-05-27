@@ -1,6 +1,8 @@
-import { getInternal, getManyInternal } from "./get";
+import { getInternal, getManyInternal, queryInternal } from "./get";
 import { updateInternal } from "./update";
 import { appendInternal } from "./append";
+import { deleteInternal } from "./delete";
+import { GQueryReadOptions, GQueryResult } from "./types";
 
 export class GQuery {
   spreadsheetId: string;
@@ -79,6 +81,14 @@ export class GQueryTable {
   get(options?: GQueryReadOptions): GQueryResult {
     return new GQueryTableFactory(this).get(options);
   }
+
+  query(query: string): GQueryResult {
+    return queryInternal(this, query);
+  }
+
+  delete(): { deletedRows: number } {
+    return new GQueryTableFactory(this).delete();
+  }
 }
 
 export class GQueryTableFactory {
@@ -138,28 +148,8 @@ export class GQueryTableFactory {
     const dataArray = Array.isArray(data) ? data : [data];
     return appendInternal(this.gQueryTable, dataArray);
   }
-}
 
-export type GQueryReadOptions = {
-  valueRenderOption?: ValueRenderOption;
-  dateTimeRenderOption?: DateTimeRenderOption;
-};
-export type GQueryResult = {
-  rows: GQueryRow[];
-  headers: string[];
-};
-export type GQueryRow = Record<string, any> & {
-  __meta: {
-    rowNum: number;
-    colLength: number;
-  };
-};
-export enum ValueRenderOption {
-  FORMATTED_VALUE = "FORMATTED_VALUE",
-  UNFORMATTED_VALUE = "UNFORMATTED_VALUE",
-  FORMULA = "FORMULA",
-}
-export enum DateTimeRenderOption {
-  FORMATTED_STRING = "FORMATTED_STRING",
-  SERIAL_NUMBER = "SERIAL_NUMBER",
+  delete(): { deletedRows: number } {
+    return deleteInternal(this);
+  }
 }

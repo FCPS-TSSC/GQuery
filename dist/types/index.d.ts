@@ -1,3 +1,4 @@
+import { GQueryReadOptions, GQueryResult } from "./types";
 export declare class GQuery {
     spreadsheetId: string;
     constructor(spreadsheetId?: string);
@@ -23,6 +24,10 @@ export declare class GQueryTable {
         [key: string]: any;
     }): GQueryResult;
     get(options?: GQueryReadOptions): GQueryResult;
+    query(query: string): GQueryResult;
+    delete(): {
+        deletedRows: number;
+    };
 }
 export declare class GQueryTableFactory {
     gQueryTable: GQueryTable;
@@ -45,27 +50,7 @@ export declare class GQueryTableFactory {
     }[] | {
         [key: string]: any;
     }): GQueryResult;
-}
-export type GQueryReadOptions = {
-    valueRenderOption?: ValueRenderOption;
-    dateTimeRenderOption?: DateTimeRenderOption;
-};
-export type GQueryResult = {
-    rows: GQueryRow[];
-    headers: string[];
-};
-export type GQueryRow = Record<string, any> & {
-    __meta: {
-        rowNum: number;
-        colLength: number;
+    delete(): {
+        deletedRows: number;
     };
-};
-export declare enum ValueRenderOption {
-    FORMATTED_VALUE = "FORMATTED_VALUE",
-    UNFORMATTED_VALUE = "UNFORMATTED_VALUE",
-    FORMULA = "FORMULA"
-}
-export declare enum DateTimeRenderOption {
-    FORMATTED_STRING = "FORMATTED_STRING",
-    SERIAL_NUMBER = "SERIAL_NUMBER"
 }

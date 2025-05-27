@@ -1,4 +1,5 @@
-import { GQueryResult, GQueryTableFactory, GQueryRow } from "./index";
+import { GQueryTableFactory } from "./index";
+import { GQueryResult, GQueryRow } from "./types";
 
 export function updateInternal(
   gQueryTableFactory: GQueryTableFactory,

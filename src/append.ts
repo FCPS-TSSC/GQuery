@@ -1,4 +1,5 @@
-import { GQueryResult, GQueryTable, GQueryRow } from "./index";
+import { GQueryTable } from "./index";
+import { GQueryResult, GQueryRow } from "./types";
 
 export function appendInternal(
   table: GQueryTable,
