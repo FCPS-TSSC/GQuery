@@ -1,25 +1,25 @@
 var GQuery = (function (exports) {
     'use strict';
 
-    var ValueRenderOption;
+    exports.ValueRenderOption = void 0;
     (function (ValueRenderOption) {
         ValueRenderOption["FORMATTED_VALUE"] = "FORMATTED_VALUE";
         ValueRenderOption["UNFORMATTED_VALUE"] = "UNFORMATTED_VALUE";
         ValueRenderOption["FORMULA"] = "FORMULA";
-    })(ValueRenderOption || (ValueRenderOption = {}));
-    var DateTimeRenderOption;
+    })(exports.ValueRenderOption || (exports.ValueRenderOption = {}));
+    exports.DateTimeRenderOption = void 0;
     (function (DateTimeRenderOption) {
         DateTimeRenderOption["FORMATTED_STRING"] = "FORMATTED_STRING";
         DateTimeRenderOption["SERIAL_NUMBER"] = "SERIAL_NUMBER";
-    })(DateTimeRenderOption || (DateTimeRenderOption = {}));
+    })(exports.DateTimeRenderOption || (exports.DateTimeRenderOption = {}));
 
     function getManyInternal(gquery, sheetNames, options) {
         if (!sheetNames || sheetNames.length === 0) {
             return {};
         }
         // Set default options if not provided
-        const valueRenderOption = (options === null || options === void 0 ? void 0 : options.valueRenderOption) || ValueRenderOption.FORMATTED_VALUE;
-        const dateTimeRenderOption = (options === null || options === void 0 ? void 0 : options.dateTimeRenderOption) || DateTimeRenderOption.FORMATTED_STRING;
+        const valueRenderOption = (options === null || options === void 0 ? void 0 : options.valueRenderOption) || exports.ValueRenderOption.FORMATTED_VALUE;
+        const dateTimeRenderOption = (options === null || options === void 0 ? void 0 : options.dateTimeRenderOption) || exports.DateTimeRenderOption.FORMATTED_STRING;
         const result = {};
         const headersMap = {};
         // Step 1: Get headers for each sheet (row 1)

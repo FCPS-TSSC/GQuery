@@ -1,4 +1,5 @@
 import { GQueryReadOptions, GQueryResult } from "./types";
+export * from "./types";
 export declare class GQuery {
     spreadsheetId: string;
     constructor(spreadsheetId?: string);

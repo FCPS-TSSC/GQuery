@@ -78,4 +78,5 @@ declare class GQueryTableFactory {
     };
 }
 
-export { GQuery, GQueryTable, GQueryTableFactory };
+export { DateTimeRenderOption, GQuery, GQueryTable, GQueryTableFactory, ValueRenderOption };
+export type { GQueryReadOptions, GQueryResult, GQueryRow };

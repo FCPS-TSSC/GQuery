@@ -4,6 +4,8 @@ import { appendInternal } from "./append";
 import { deleteInternal } from "./delete";
 import { GQueryReadOptions, GQueryResult } from "./types";
 
+export * from "./types";
+
 export class GQuery {
   spreadsheetId: string;
 

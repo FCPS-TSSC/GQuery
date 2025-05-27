@@ -838,5 +838,5 @@ class GQueryTableFactory {
     }
 }
 
-export { GQuery, GQueryTable, GQueryTableFactory };
+export { DateTimeRenderOption, GQuery, GQueryTable, GQueryTableFactory, ValueRenderOption };
 //# sourceMappingURL=bundle.js.map

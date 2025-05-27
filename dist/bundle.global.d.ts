@@ -79,7 +79,8 @@ declare namespace GQuery {
       };
   }
   
-  export { GQuery, GQueryTable, GQueryTableFactory };
+  export { DateTimeRenderOption, GQuery, GQueryTable, GQueryTableFactory, ValueRenderOption };
+  export type { GQueryReadOptions, GQueryResult, GQueryRow };
   
 }
 declare var GQuery: typeof GQuery;
