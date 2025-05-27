@@ -69,8 +69,8 @@ function getManyInternal(gquery, sheetNames, options) {
         console.error("Error fetching metadata:", e);
         // Continue without metadata - types won't be converted
     }
-    // Batch get data for all sheets (skip row 1 which is headers)
-    const dataRanges = sheetsToFetch.map((sheet) => `${sheet}!A2:ZZ`);
+    // Batch get data for all sheets (just use the sheet name as the range)
+    const dataRanges = sheetsToFetch.map((sheet) => `${sheet}`);
     const dataResponse = Sheets.Spreadsheets.Values.batchGet(gquery.spreadsheetId, {
         ranges: dataRanges,
         valueRenderOption: valueRenderOption,
@@ -105,12 +105,19 @@ function getManyInternal(gquery, sheetNames, options) {
                     colLength: rowData.length,
                 },
             };
+            // First initialize all header fields to empty strings
+            headers.forEach((header) => {
+                row[header] = "";
+            });
             // Map each column value to its corresponding header
-            for (let j = 0; j < headers.length; j++) {
+            for (let j = 0; j < Math.min(rowData.length, headers.length); j++) {
                 const header = headers[j];
-                let value = j < rowData.length ? rowData[j] : null;
+                let value = rowData[j];
+                if (value === null || value === undefined) {
+                    continue; // Skip processing but keep the empty string initialized earlier
+                }
                 // Apply type conversions based on metadata if available
-                if (columnTypes[header] && value !== null && value !== "") {
+                if (columnTypes[header] && value !== "") {
                     const dataType = columnTypes[header];
                     if (dataType === "BOOLEAN") {
                         // Convert to boolean
