@@ -549,13 +549,18 @@ function appendInternal(table, data) {
     const rowsToAppend = data.map((item) => {
         // For each header, get corresponding value from item or empty string
         return headers.map((header) => {
-            return item[header] !== undefined ? item[header] : "";
+            let value = item[header];
+            // Convert Date objects to strings
+            if (value instanceof Date) {
+                value = value.toLocaleString();
+            }
+            return value !== undefined ? value : "";
         });
     });
     // Use Sheets API to append the data
     const appendResponse = Sheets.Spreadsheets.Values.append({ values: rowsToAppend }, spreadsheetId, `${sheetName}`, {
         valueInputOption: "USER_ENTERED",
-        insertDataOption: "INSERT_ROWS",
+        insertDataOption: "OVERWRITE",
         responseValueRenderOption: "FORMATTED_VALUE",
         responseDateTimeRenderOption: "FORMATTED_STRING",
         includeValuesInResponse: true,
