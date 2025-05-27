@@ -5,45 +5,203 @@ function getManyInternal(gquery, sheetNames, options) {
     // Set default options if not provided
     const valueRenderOption = (options === null || options === void 0 ? void 0 : options.valueRenderOption) || ValueRenderOption.FORMATTED_VALUE;
     const dateTimeRenderOption = (options === null || options === void 0 ? void 0 : options.dateTimeRenderOption) || DateTimeRenderOption.FORMATTED_STRING;
-    // Use Sheets API to batch get the data
-    const response = Sheets.Spreadsheets.Values.batchGet(gquery.spreadsheetId, {
-        ranges: sheetNames,
+    const result = {};
+    const headersMap = {};
+    // Step 1: Get headers for each sheet (row 1)
+    for (const sheetName of sheetNames) {
+        try {
+            const headerResponse = Sheets.Spreadsheets.Values.get(gquery.spreadsheetId, `${sheetName}!1:1`, {
+                valueRenderOption: valueRenderOption,
+                dateTimeRenderOption: dateTimeRenderOption,
+            });
+            if (!headerResponse ||
+                !headerResponse.values ||
+                headerResponse.values.length === 0) {
+                // Handle empty sheet or sheet with no headers
+                result[sheetName] = { headers: [], rows: [] };
+                continue;
+            }
+            headersMap[sheetName] = headerResponse.values[0].map((header) => String(header));
+        }
+        catch (e) {
+            console.error(`Error fetching headers for sheet ${sheetName}:`, e);
+            result[sheetName] = { headers: [], rows: [] };
+        }
+    }
+    // Step 2: Get data for sheets that have headers
+    const sheetsToFetch = Object.keys(headersMap).filter((sheet) => headersMap[sheet].length > 0);
+    if (sheetsToFetch.length === 0) {
+        return result;
+    }
+    // Also fetch metadata for each sheet to determine data types
+    let sheetMetadata = {};
+    try {
+        // Get spreadsheet metadata including sheet tables if available
+        const metadataResponse = Sheets.Spreadsheets.get(gquery.spreadsheetId, {
+            fields: "sheets(properties(title),tables.columnProperties)",
+        });
+        if (metadataResponse && metadataResponse.sheets) {
+            metadataResponse.sheets.forEach((sheet) => {
+                var _a;
+                const sheetName = (_a = sheet.properties) === null || _a === void 0 ? void 0 : _a.title;
+                if (!sheetName || !sheetsToFetch.includes(sheetName))
+                    return;
+                // @ts-expect-error: TypeScript may not recognize the tables property
+                if (sheet.tables && sheet.tables.length > 0) {
+                    // Use the first table definition for column properties
+                    // @ts-expect-error: TypeScript may not recognize the tables property
+                    const table = sheet.tables[0];
+                    if (table.columnProperties) {
+                        sheetMetadata[sheetName] = {};
+                        // For each column property, store its data type
+                        Object.keys(table.columnProperties).forEach((column) => {
+                            const dataType = table.columnProperties[column].dataType;
+                            if (dataType) {
+                                sheetMetadata[sheetName][column] = dataType;
+                            }
+                        });
+                    }
+                }
+            });
+        }
+    }
+    catch (e) {
+        console.error("Error fetching metadata:", e);
+        // Continue without metadata - types won't be converted
+    }
+    // Batch get data for all sheets (skip row 1 which is headers)
+    const dataRanges = sheetsToFetch.map((sheet) => `${sheet}!A2:ZZ`);
+    const dataResponse = Sheets.Spreadsheets.Values.batchGet(gquery.spreadsheetId, {
+        ranges: dataRanges,
         valueRenderOption: valueRenderOption,
         dateTimeRenderOption: dateTimeRenderOption,
     });
-    const result = {};
-    if (!response || !response.valueRanges) {
+    if (!dataResponse || !dataResponse.valueRanges) {
+        // Return just the headers if we couldn't get any data
+        sheetsToFetch.forEach((sheet) => {
+            result[sheet] = {
+                headers: headersMap[sheet],
+                rows: [],
+            };
+        });
         return result;
     }
-    // Process each returned value range
-    response.valueRanges.forEach((valueRange, index) => {
-        const sheetName = sheetNames[index];
+    // Process each value range from the batch response
+    dataResponse.valueRanges.forEach((valueRange, index) => {
+        const sheetName = sheetsToFetch[index];
+        const headers = headersMap[sheetName];
         if (!valueRange.values || valueRange.values.length === 0) {
-            // Handle empty sheet
-            result[sheetName] = { headers: [], rows: [] };
+            // Sheet exists but has no data rows
+            result[sheetName] = { headers, rows: [] };
             return;
         }
-        // First row contains headers
-        const headers = valueRange.values[0].map((header) => String(header));
         const rows = [];
-        // Process data rows (starting from index 1 to skip headers)
-        for (let i = 1; i < valueRange.values.length; i++) {
-            const rowData = valueRange.values[i];
+        const columnTypes = sheetMetadata[sheetName] || {};
+        // Process data rows
+        valueRange.values.forEach((rowData, rowIndex) => {
             const row = {
                 __meta: {
-                    rowNum: i + 1, // 1-based row number (+1 because we're starting from index 1)
+                    rowNum: rowIndex + 2, // +2 because we're starting from index 0 and row 1 is headers
                     colLength: rowData.length,
                 },
             };
             // Map each column value to its corresponding header
             for (let j = 0; j < headers.length; j++) {
                 const header = headers[j];
-                row[header] = j < rowData.length ? rowData[j] : null;
+                let value = j < rowData.length ? rowData[j] : null;
+                // Apply type conversions based on metadata if available
+                if (columnTypes[header] && value !== null && value !== "") {
+                    const dataType = columnTypes[header];
+                    if (dataType === "BOOLEAN") {
+                        // Convert to boolean
+                        if (typeof value === "string") {
+                            value = value.toLowerCase() === "true";
+                        }
+                    }
+                    else if (dataType === "DATE_TIME") {
+                        // Convert to Date object
+                        try {
+                            const dateValue = new Date(value);
+                            if (!isNaN(dateValue.getTime())) {
+                                value = dateValue;
+                            }
+                        }
+                        catch (e) {
+                            // Keep original value if conversion fails
+                        }
+                    }
+                    else if (dataType === "NUMBER") {
+                        // Convert to number
+                        const numValue = Number(value);
+                        if (!isNaN(numValue)) {
+                            value = numValue;
+                        }
+                    }
+                }
+                else {
+                    // Try automatic type inference for common patterns
+                    if (typeof value === "string") {
+                        // Auto-detect booleans
+                        if (value.toLowerCase() === "true" ||
+                            value.toLowerCase() === "false") {
+                            value = value.toLowerCase() === "true";
+                        }
+                        // Auto-detect dates (simple pattern for dates like MM/DD/YYYY, etc.)
+                        else if (/^\d{1,2}\/\d{1,2}\/\d{4}(\s\d{1,2}:\d{1,2}(:\d{1,2})?)?$/.test(value)) {
+                            try {
+                                const dateValue = new Date(value);
+                                if (!isNaN(dateValue.getTime())) {
+                                    value = dateValue;
+                                }
+                            }
+                            catch (e) {
+                                // Keep as string if conversion fails
+                            }
+                        }
+                    }
+                }
+                row[header] = value;
             }
             rows.push(row);
-        }
+        });
         result[sheetName] = { headers, rows };
     });
+    // Make sure all sheets in headersMap have an entry in result
+    sheetsToFetch.forEach((sheet) => {
+        if (!result[sheet]) {
+            result[sheet] = {
+                headers: headersMap[sheet],
+                rows: [],
+            };
+        }
+    });
+    // Convert data types based on metadata if available
+    if (Object.keys(sheetMetadata).length > 0) {
+        Object.keys(result).forEach((sheetName) => {
+            const sheetResult = result[sheetName];
+            const metadata = sheetMetadata[sheetName];
+            if (sheetResult && sheetResult.rows && metadata) {
+                sheetResult.rows = sheetResult.rows.map((row) => {
+                    const newRow = Object.assign({}, row);
+                    Object.keys(metadata).forEach((column) => {
+                        const dataType = metadata[column];
+                        // Convert based on data type
+                        if (dataType === "NUMBER") {
+                            newRow[column] = Number(row[column]);
+                        }
+                        else if (dataType === "BOOLEAN") {
+                            newRow[column] = row[column] === "TRUE";
+                        }
+                        else if (dataType === "DATE" || dataType === "DATETIME") {
+                            newRow[column] = new Date(row[column]);
+                        }
+                        // Add more conversions as needed
+                    });
+                    return newRow;
+                });
+            }
+        });
+    }
     return result;
 }
 function getInternal(gqueryTableFactory, options) {
