@@ -416,26 +416,39 @@ function updateInternal(gQueryTableFactory, updateFn) {
         const rowIndex = updatedRow.__meta.rowNum - 2;
         const originalRow = rows[rowIndex];
         headers.forEach((header, columnIndex) => {
+            let updatedValue = updatedRow[header];
+            // Convert Date objects to strings for comparison and storage
+            if (updatedValue instanceof Date) {
+                updatedValue = updatedValue.toLocaleString();
+            }
             // Skip if values are the same
-            if (originalRow[header] === updatedRow[header])
+            if (originalRow[header] === updatedValue)
                 return;
             // Use A1 notation for the column (A, B, C, etc.)
             const columnLetter = getColumnLetter(columnIndex);
             const cellRange = `${sheetName}!${columnLetter}${updatedRow.__meta.rowNum}`;
             // Store the change
-            changedCells.set(cellRange, [[updatedRow[header] || ""]]);
+            changedCells.set(cellRange, [[updatedValue || ""]]);
         });
     });
     // Only update if we have changes
     if (changedCells.size > 0) {
         // Group adjacent cells in the same column for more efficient updates
         const optimizedUpdates = optimizeRanges(changedCells);
-        // Send updates to Google Sheets
+        // Create a batch update request
+        const batchUpdateRequest = {
+            data: [],
+            valueInputOption: "USER_ENTERED",
+        };
+        // Add each range to the batch request
         for (const [range, values] of Object.entries(optimizedUpdates)) {
-            Sheets.Spreadsheets.Values.update({ values }, spreadsheetId, range, {
-                valueInputOption: "USER_ENTERED",
+            batchUpdateRequest.data.push({
+                range: range,
+                values: values,
             });
         }
+        // Send a single batch update to Google Sheets
+        Sheets.Spreadsheets.Values.batchUpdate(batchUpdateRequest, spreadsheetId);
     }
     // If updates were made, properly return the filtered and updated rows
     // Make a fresh copy of the returned rows to ensure they have proper structure
@@ -493,7 +506,7 @@ function optimizeRanges(changedCells) {
         const rowNumbers = Array.from(rowsMap.keys()).sort((a, b) => a - b);
         if (rowNumbers.length === 0)
             continue;
-        // Instead of finding continuous ranges, just find min and max to create one range per column
+        // Find min and max to create one range per column
         const minRow = Math.min(...rowNumbers);
         const maxRow = Math.max(...rowNumbers);
         // Extract sheet name and column from columnKey
@@ -505,7 +518,11 @@ function optimizeRanges(changedCells) {
         const values = [];
         for (let row = minRow; row <= maxRow; row++) {
             // Use the updated value if it exists, otherwise use empty string to preserve the existing value
-            const value = rowsMap.has(row) ? rowsMap.get(row) : "";
+            let value = rowsMap.has(row) ? rowsMap.get(row) : "";
+            // Convert Date objects to strings
+            if (value instanceof Date) {
+                value = value.toLocaleString();
+            }
             values.push([value]);
         }
         optimizedUpdates[rangeKey] = values;
