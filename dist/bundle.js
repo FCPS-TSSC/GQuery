@@ -1,4 +1,4 @@
-function getManyInternal(sheetNames, options) {
+function getManyInternal(gquery, sheetNames, options) {
     if (!sheetNames || sheetNames.length === 0) {
         return {};
     }
@@ -6,7 +6,7 @@ function getManyInternal(sheetNames, options) {
     const valueRenderOption = (options === null || options === void 0 ? void 0 : options.valueRenderOption) || ValueRenderOption.FORMATTED_VALUE;
     const dateTimeRenderOption = (options === null || options === void 0 ? void 0 : options.dateTimeRenderOption) || DateTimeRenderOption.FORMATTED_STRING;
     // Use Sheets API to batch get the data
-    const response = Sheets.Spreadsheets.Values.batchGet(this.spreadsheetId, {
+    const response = Sheets.Spreadsheets.Values.batchGet(gquery.spreadsheetId, {
         ranges: sheetNames,
         valueRenderOption: valueRenderOption,
         dateTimeRenderOption: dateTimeRenderOption,
@@ -52,8 +52,8 @@ function getInternal(gqueryTableFactory) {
     // Determine which sheets we need to read from
     const sheetsToRead = [gqueryTable.sheetName];
     // Add all join sheets
-    if (this.joinOption.length > 0) {
-        this.joinOption.forEach((join) => {
+    if (gqueryTableFactory.joinOption.length > 0) {
+        gqueryTableFactory.joinOption.forEach((join) => {
             if (!sheetsToRead.includes(join.sheetName)) {
                 sheetsToRead.push(join.sheetName);
             }
@@ -71,8 +71,8 @@ function getInternal(gqueryTableFactory) {
     let rows = result.rows;
     let headers = result.headers;
     // Process each join sequentially
-    if (this.joinOption.length > 0) {
-        this.joinOption.forEach((joinConfig) => {
+    if (gqueryTableFactory.joinOption.length > 0) {
+        gqueryTableFactory.joinOption.forEach((joinConfig) => {
             const { sheetName, sheetColumn, joinColumn, columnsToReturn } = joinConfig;
             const joinData = results[sheetName];
             if (!joinData || !joinData.rows || joinData.rows.length === 0) {
@@ -116,11 +116,12 @@ function getInternal(gqueryTableFactory) {
         });
     }
     // Apply filter if specified
-    if (this.filterOption) {
-        rows = rows.filter(this.filterOption);
+    if (gqueryTableFactory.filterOption) {
+        rows = rows.filter(gqueryTableFactory.filterOption);
     }
     // Apply select if specified
-    if (this.selectOption && this.selectOption.length > 0) {
+    if (gqueryTableFactory.selectOption &&
+        gqueryTableFactory.selectOption.length > 0) {
         // Create a map to track columns from joined tables
         const joinedColumns = new Set();
         // Collect all columns from joined tables
@@ -136,18 +137,18 @@ function getInternal(gqueryTableFactory) {
         let selectedHeaders;
         // Check if any of the selected headers is "Model" or "Model_Name"
         // If we're selecting the join columns, we want to include all related joined fields
-        if (this.selectOption.some((header) => header === "Model" ||
+        if (gqueryTableFactory.selectOption.some((header) => header === "Model" ||
             header === "Model_Name" ||
-            this.joinOption.some((j) => j.joinColumn === header || j.sheetColumn === header))) {
+            gqueryTableFactory.joinOption.some((j) => j.joinColumn === header || j.sheetColumn === header))) {
             // Include all join-related columns and the selected columns
-            selectedHeaders = [...this.selectOption];
+            selectedHeaders = [...gqueryTableFactory.selectOption];
             joinedColumns.forEach((joinCol) => {
                 selectedHeaders.push(joinCol);
             });
         }
         else {
             // Otherwise only include explicitly selected columns
-            selectedHeaders = [...this.selectOption];
+            selectedHeaders = [...gqueryTableFactory.selectOption];
         }
         // Remove duplicates
         selectedHeaders = [...new Set(selectedHeaders)];
@@ -185,7 +186,7 @@ class GQuery {
         return new GQueryTable(this, this.spreadsheetId, sheetName);
     }
     getMany(sheetNames, options) {
-        return getManyInternal(sheetNames, options);
+        return getManyInternal(this, sheetNames, options);
     }
 }
 /**

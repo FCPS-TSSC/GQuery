@@ -19,7 +19,7 @@ export class GQuery {
   ): {
     [sheetName: string]: GQueryResult;
   } {
-    return getManyInternal(sheetNames, options);
+    return getManyInternal(this, sheetNames, options);
   }
 }
 /**

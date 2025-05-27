@@ -10,6 +10,7 @@ import {
 } from "./index";
 
 export function getManyInternal(
+  gquery: GQuery,
   sheetNames: string[],
   options?: GQueryReadOptions
 ): {
@@ -26,7 +27,7 @@ export function getManyInternal(
     options?.dateTimeRenderOption || DateTimeRenderOption.FORMATTED_STRING;
 
   // Use Sheets API to batch get the data
-  const response = Sheets.Spreadsheets.Values.batchGet(this.spreadsheetId, {
+  const response = Sheets.Spreadsheets.Values.batchGet(gquery.spreadsheetId, {
     ranges: sheetNames,
     valueRenderOption: valueRenderOption,
     dateTimeRenderOption: dateTimeRenderOption,
@@ -86,8 +87,8 @@ export function getInternal(
   const sheetsToRead = [gqueryTable.sheetName];
 
   // Add all join sheets
-  if (this.joinOption.length > 0) {
-    this.joinOption.forEach((join) => {
+  if (gqueryTableFactory.joinOption.length > 0) {
+    gqueryTableFactory.joinOption.forEach((join) => {
       if (!sheetsToRead.includes(join.sheetName)) {
         sheetsToRead.push(join.sheetName);
       }
@@ -111,8 +112,8 @@ export function getInternal(
   let headers = result.headers;
 
   // Process each join sequentially
-  if (this.joinOption.length > 0) {
-    this.joinOption.forEach((joinConfig) => {
+  if (gqueryTableFactory.joinOption.length > 0) {
+    gqueryTableFactory.joinOption.forEach((joinConfig) => {
       const { sheetName, sheetColumn, joinColumn, columnsToReturn } =
         joinConfig;
 
@@ -171,12 +172,15 @@ export function getInternal(
   }
 
   // Apply filter if specified
-  if (this.filterOption) {
-    rows = rows.filter(this.filterOption);
+  if (gqueryTableFactory.filterOption) {
+    rows = rows.filter(gqueryTableFactory.filterOption);
   }
 
   // Apply select if specified
-  if (this.selectOption && this.selectOption.length > 0) {
+  if (
+    gqueryTableFactory.selectOption &&
+    gqueryTableFactory.selectOption.length > 0
+  ) {
     // Create a map to track columns from joined tables
     const joinedColumns = new Set<string>();
 
@@ -196,23 +200,23 @@ export function getInternal(
     // Check if any of the selected headers is "Model" or "Model_Name"
     // If we're selecting the join columns, we want to include all related joined fields
     if (
-      this.selectOption.some(
+      gqueryTableFactory.selectOption.some(
         (header) =>
           header === "Model" ||
           header === "Model_Name" ||
-          this.joinOption.some(
+          gqueryTableFactory.joinOption.some(
             (j) => j.joinColumn === header || j.sheetColumn === header
           )
       )
     ) {
       // Include all join-related columns and the selected columns
-      selectedHeaders = [...this.selectOption];
+      selectedHeaders = [...gqueryTableFactory.selectOption];
       joinedColumns.forEach((joinCol) => {
         selectedHeaders.push(joinCol);
       });
     } else {
       // Otherwise only include explicitly selected columns
-      selectedHeaders = [...this.selectOption];
+      selectedHeaders = [...gqueryTableFactory.selectOption];
     }
 
     // Remove duplicates
