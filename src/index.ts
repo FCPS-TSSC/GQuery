@@ -23,14 +23,7 @@ export class GQuery {
     return getManyInternal(this, sheetNames, options);
   }
 }
-/**
- * Idea end result:
- * user calls from("Sheet1")
- * if user calls .select(["Id", "Name"]) -- only return Id Name columns after read() is called
- * if user calls .filter((row) => row.Id === 1) -- only return rows where Id === 1 after read() is called
- * if user calls .join("Models", "Model", "Model_Name") -- join Models sheet on Model_Name (Models sheet) and Model (current sheet)
- * once read() is called, it will return the result of the query
- */
+
 export class GQueryTable {
   gquery: GQuery;
   spreadsheetId: string;
@@ -124,7 +117,7 @@ export class GQueryTableFactory {
   }
 
   update(
-    updateFn?: (row: Record<string, any>) => Record<string, any>
+    updateFn: (row: Record<string, any>) => Record<string, any>
   ): GQueryResult {
     return updateInternal(this, updateFn);
   }

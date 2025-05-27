@@ -7,14 +7,6 @@ declare namespace GQuery {
           [sheetName: string]: GQueryResult;
       };
   }
-  /**
-   * Idea end result:
-   * user calls from("Sheet1")
-   * if user calls .select(["Id", "Name"]) -- only return Id Name columns after read() is called
-   * if user calls .filter((row) => row.Id === 1) -- only return rows where Id === 1 after read() is called
-   * if user calls .join("Models", "Model", "Model_Name") -- join Models sheet on Model_Name (Models sheet) and Model (current sheet)
-   * once read() is called, it will return the result of the query
-   */
   declare class GQueryTable {
       gquery: GQuery;
       spreadsheetId: string;
@@ -43,7 +35,7 @@ declare namespace GQuery {
       where(filterFn: (row: any) => boolean): GQueryTableFactory;
       join(sheetName: string, sheetColumn: string, joinColumn: string, columnsToReturn?: string[]): GQueryTableFactory;
       get(): GQueryResult;
-      update(updateFn?: (row: Record<string, any>) => Record<string, any>): GQueryResult;
+      update(updateFn: (row: Record<string, any>) => Record<string, any>): GQueryResult;
   }
   type GQueryReadOptions = {
       valueRenderOption?: ValueRenderOption;

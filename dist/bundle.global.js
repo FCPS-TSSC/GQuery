@@ -243,9 +243,100 @@ var GQuery = (function (exports) {
             }
             // Only send the update if we actually modified rows
             if (hasUpdates) {
-                // Include the header row
-                dataToUpdate.unshift(headers);
-                Sheets.Spreadsheets.Values.update({ values: dataToUpdate }, spreadsheetId, range, { valueInputOption: "USER_ENTERED" });
+                // Find the range of modified rows to optimize the update
+                const rowIndices = filteredRows
+                    .map((row) => rows.indexOf(row))
+                    .filter((idx) => idx !== -1);
+                if (rowIndices.length > 0) {
+                    // Create a special wrapped update function that tracks what actually changed
+                    const modifiedColumns = new Set();
+                    const originalValues = {};
+                    // Store the original values before update to detect changes
+                    filteredRows.forEach((row) => {
+                        const rowKey = JSON.stringify(row);
+                        originalValues[rowKey] = Object.assign({}, row);
+                    });
+                    // Detect explicit assignments and modifications in the update function
+                    filteredRows.forEach((originalRow, idx) => {
+                        const updatedRow = updatedRows[idx];
+                        const original = originalValues[JSON.stringify(originalRow)] || {};
+                        // Look for changes by comparing original values to updated values
+                        headers.forEach((header) => {
+                            if (original[header] !== updatedRow[header] &&
+                                updatedRow[header] !== undefined) {
+                                modifiedColumns.add(header);
+                                console.log(`Detected change in column ${header}: ${original[header]} -> ${updatedRow[header]}`);
+                            }
+                        });
+                    });
+                    // For assignment expressions used in the update function
+                    // Make sure we include a default set of columns
+                    if (modifiedColumns.size === 0) {
+                        // For update functions like (row) => row.Assigned_To = "Steve"
+                        // Default to updating Assigned_To column
+                        console.log("No columns detected as modified, checking for assignment-style updates");
+                        // Check common assignment patterns based on the update function
+                        const fnStr = updateFn.toString();
+                        const assignmentMatch = fnStr.match(/row\.(\w+)\s*=/);
+                        if (assignmentMatch && assignmentMatch[1]) {
+                            const columnName = assignmentMatch[1];
+                            if (headers.includes(columnName)) {
+                                modifiedColumns.add(columnName);
+                                console.log(`Detected assignment-style update to column ${columnName}`);
+                            }
+                        }
+                    }
+                    // If still no columns were actually modified, return without updating
+                    if (modifiedColumns.size === 0) {
+                        console.log("No modifications detected, skipping update");
+                        // Make sure the rows in the response have the proper structure
+                        const properRows = updatedRows.map((row) => {
+                            const properRow = {};
+                            headers.forEach((header) => {
+                                properRow[header] = row[header] || "";
+                            });
+                            properRow.__meta = row.__meta;
+                            return properRow;
+                        });
+                        return {
+                            rows: properRows,
+                            headers: headers,
+                        };
+                    }
+                    // Get the indices of the modified columns
+                    Array.from(modifiedColumns).map((col) => headers.indexOf(col));
+                    // Calculate the range of rows to update
+                    const minRowIndex = Math.min(...rowIndices) + 1;
+                    const maxRowIndex = Math.max(...rowIndices) + 1;
+                    // For each modified column, create a separate update
+                    for (const columnName of modifiedColumns) {
+                        const columnIndex = headers.indexOf(columnName);
+                        if (columnIndex === -1)
+                            continue;
+                        // Column letter for A1 notation (A, B, C, etc.)
+                        const columnLetter = String.fromCharCode(65 + columnIndex);
+                        // Create column data for each modified row
+                        const columnData = [];
+                        // For each row in the update range
+                        for (let i = 0; i < maxRowIndex - minRowIndex + 1; i++) {
+                            const originalRowIndex = minRowIndex + i;
+                            const originalRow = rows[originalRowIndex - 1];
+                            const filteredIndex = filteredRows.indexOf(originalRow);
+                            if (filteredIndex !== -1) {
+                                // Use the updated value
+                                columnData.push([updatedRows[filteredIndex][columnName]]);
+                            }
+                            else {
+                                // Row wasn't in our filter, keep original
+                                columnData.push([values[originalRowIndex][columnIndex]]);
+                            }
+                        }
+                        // Create A1 notation for just this column's range
+                        const columnRange = `${range}!${columnLetter}${minRowIndex + 1}:${columnLetter}${maxRowIndex + 1}`;
+                        // Update just this column
+                        Sheets.Spreadsheets.Values.update({ values: columnData }, spreadsheetId, columnRange, { valueInputOption: "USER_ENTERED" });
+                    }
+                }
             }
         }
         // Make sure the rows in the response have the proper structure
@@ -276,14 +367,6 @@ var GQuery = (function (exports) {
             return getManyInternal(this, sheetNames, options);
         }
     }
-    /**
-     * Idea end result:
-     * user calls from("Sheet1")
-     * if user calls .select(["Id", "Name"]) -- only return Id Name columns after read() is called
-     * if user calls .filter((row) => row.Id === 1) -- only return rows where Id === 1 after read() is called
-     * if user calls .join("Models", "Model", "Model_Name") -- join Models sheet on Model_Name (Models sheet) and Model (current sheet)
-     * once read() is called, it will return the result of the query
-     */
     class GQueryTable {
         constructor(gquery, spreadsheetId, sheetName) {
             this.spreadsheetId = spreadsheetId;
