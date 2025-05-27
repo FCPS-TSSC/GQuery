@@ -179,7 +179,8 @@ function getInternal(gqueryTableFactory) {
 function updateInternal(gQueryTableFactory, updateFn) {
     // Get table configuration
     const spreadsheetId = gQueryTableFactory.gQueryTable.spreadsheetId;
-    const range = gQueryTableFactory.gQueryTable.sheetName;
+    const sheetName = gQueryTableFactory.gQueryTable.sheetName;
+    const range = sheetName;
     // Fetch current data from the sheet
     const response = Sheets.Spreadsheets.Values.get(spreadsheetId, range);
     const values = response.values || [];
@@ -191,162 +192,220 @@ function updateInternal(gQueryTableFactory, updateFn) {
     const rows = values.slice(1).map((row) => {
         const obj = {};
         headers.forEach((header, i) => {
-            obj[header] = row[i];
+            // Ensure all properties are initialized, even if empty
+            obj[header] = row[i] !== undefined ? row[i] : "";
         });
         return obj;
     });
     // Filter rows if where function is provided
-    const filteredRows = gQueryTableFactory.filterOption
-        ? rows.filter(gQueryTableFactory.filterOption)
-        : rows;
+    let filteredRows = [];
+    if (gQueryTableFactory.filterOption) {
+        try {
+            filteredRows = rows.filter((row) => {
+                try {
+                    return gQueryTableFactory.filterOption(row);
+                }
+                catch (error) {
+                    console.error("Error filtering row:", error);
+                    return false;
+                }
+            });
+        }
+        catch (error) {
+            console.error("Error in filter function:", error);
+            return { rows: [], headers };
+        }
+    }
+    else {
+        filteredRows = rows;
+    }
     // Update filtered rows
     const updatedRows = filteredRows.map((row) => {
         // Apply the update function to get the updated row values
-        const updatedRow = updateFn(row);
-        // Find the index of this row in the original data array
-        const rowIndex = rows.indexOf(row);
-        // Only update the spreadsheet if we found the row
-        if (rowIndex !== -1) {
-            // Update the row in the values array with the new values
-            const newRowValues = headers.map((header) => updatedRow[header] || "");
-            values[rowIndex + 1] = newRowValues; // +1 to account for header row
+        const updatedRow = Object.assign({}, row);
+        try {
+            const result = updateFn(updatedRow);
+            // Handle both return value updates and direct modifications
+            Object.assign(updatedRow, result);
         }
+        catch (error) {
+            console.error("Error updating row:", error);
+        }
+        // Find the index of this row in the original data array
+        const rowIndex = rows.findIndex((origRow) => Object.keys(origRow).every((key) => origRow[key] === row[key]));
         // Add __meta to each row with required properties
-        return Object.assign(Object.assign({}, updatedRow), { __meta: {
+        if (rowIndex !== -1) {
+            updatedRow.__meta = {
                 rowNum: rowIndex + 2, // +2 because we have headers at index 0 and row index is 0-based
                 colLength: headers.length,
-            } });
-    });
-    // Only update the rows that were modified if there are any
-    if (updatedRows.length > 0) {
-        // Prepare a single bulk update
-        const dataToUpdate = [];
-        let hasUpdates = false;
-        // Go through the original values array and replace only the rows that were updated
-        for (let i = 1; i < values.length; i++) {
-            const originalRow = rows[i - 1];
-            // Check if this row was in our filtered/updated set
-            const updatedRowIndex = filteredRows.indexOf(originalRow);
-            if (updatedRowIndex !== -1) {
-                // This row was updated, use the new values
-                hasUpdates = true;
-                const updatedRow = updatedRows[updatedRowIndex];
-                dataToUpdate.push(headers.map((header) => updatedRow[header] || ""));
-            }
-            else {
-                // This row wasn't updated, keep the original values
-                dataToUpdate.push(values[i]);
-            }
+            };
         }
-        // Only send the update if we actually modified rows
-        if (hasUpdates) {
-            // Find the range of modified rows to optimize the update
-            const rowIndices = filteredRows
-                .map((row) => rows.indexOf(row))
-                .filter((idx) => idx !== -1);
-            if (rowIndices.length > 0) {
-                // Create a special wrapped update function that tracks what actually changed
-                const modifiedColumns = new Set();
-                const originalValues = {};
-                // Store the original values before update to detect changes
-                filteredRows.forEach((row) => {
-                    const rowKey = JSON.stringify(row);
-                    originalValues[rowKey] = Object.assign({}, row);
-                });
-                // Detect explicit assignments and modifications in the update function
-                filteredRows.forEach((originalRow, idx) => {
-                    const updatedRow = updatedRows[idx];
-                    const original = originalValues[JSON.stringify(originalRow)] || {};
-                    // Look for changes by comparing original values to updated values
-                    headers.forEach((header) => {
-                        if (original[header] !== updatedRow[header] &&
-                            updatedRow[header] !== undefined) {
-                            modifiedColumns.add(header);
-                            console.log(`Detected change in column ${header}: ${original[header]} -> ${updatedRow[header]}`);
-                        }
-                    });
-                });
-                // For assignment expressions used in the update function
-                // Make sure we include a default set of columns
-                if (modifiedColumns.size === 0) {
-                    // For update functions like (row) => row.Assigned_To = "Steve"
-                    // Default to updating Assigned_To column
-                    console.log("No columns detected as modified, checking for assignment-style updates");
-                    // Check common assignment patterns based on the update function
-                    const fnStr = updateFn.toString();
-                    const assignmentMatch = fnStr.match(/row\.(\w+)\s*=/);
-                    if (assignmentMatch && assignmentMatch[1]) {
-                        const columnName = assignmentMatch[1];
-                        if (headers.includes(columnName)) {
-                            modifiedColumns.add(columnName);
-                            console.log(`Detected assignment-style update to column ${columnName}`);
-                        }
-                    }
-                }
-                // If still no columns were actually modified, return without updating
-                if (modifiedColumns.size === 0) {
-                    console.log("No modifications detected, skipping update");
-                    // Make sure the rows in the response have the proper structure
-                    const properRows = updatedRows.map((row) => {
-                        const properRow = {};
-                        headers.forEach((header) => {
-                            properRow[header] = row[header] || "";
-                        });
-                        properRow.__meta = row.__meta;
-                        return properRow;
-                    });
-                    return {
-                        rows: properRows,
-                        headers: headers,
-                    };
-                }
-                // Get the indices of the modified columns
-                Array.from(modifiedColumns).map((col) => headers.indexOf(col));
-                // Calculate the range of rows to update
-                const minRowIndex = Math.min(...rowIndices) + 1;
-                const maxRowIndex = Math.max(...rowIndices) + 1;
-                // For each modified column, create a separate update
-                for (const columnName of modifiedColumns) {
-                    const columnIndex = headers.indexOf(columnName);
-                    if (columnIndex === -1)
-                        continue;
-                    // Column letter for A1 notation (A, B, C, etc.)
-                    const columnLetter = String.fromCharCode(65 + columnIndex);
-                    // Create column data for each modified row
-                    const columnData = [];
-                    // For each row in the update range
-                    for (let i = 0; i < maxRowIndex - minRowIndex + 1; i++) {
-                        const originalRowIndex = minRowIndex + i;
-                        const originalRow = rows[originalRowIndex - 1];
-                        const filteredIndex = filteredRows.indexOf(originalRow);
-                        if (filteredIndex !== -1) {
-                            // Use the updated value
-                            columnData.push([updatedRows[filteredIndex][columnName]]);
-                        }
-                        else {
-                            // Row wasn't in our filter, keep original
-                            columnData.push([values[originalRowIndex][columnIndex]]);
-                        }
-                    }
-                    // Create A1 notation for just this column's range
-                    const columnRange = `${range}!${columnLetter}${minRowIndex + 1}:${columnLetter}${maxRowIndex + 1}`;
-                    // Update just this column
-                    Sheets.Spreadsheets.Values.update({ values: columnData }, spreadsheetId, columnRange, { valueInputOption: "USER_ENTERED" });
-                }
-            }
+        return updatedRow;
+    });
+    // Track changes to optimize updates
+    const changedCells = new Map();
+    // For each updated row, determine which cells changed
+    updatedRows.forEach((updatedRow) => {
+        if (!updatedRow.__meta)
+            return;
+        const rowIndex = updatedRow.__meta.rowNum - 2;
+        const originalRow = rows[rowIndex];
+        headers.forEach((header, columnIndex) => {
+            // Skip if values are the same
+            if (originalRow[header] === updatedRow[header])
+                return;
+            // Use A1 notation for the column (A, B, C, etc.)
+            const columnLetter = getColumnLetter(columnIndex);
+            const cellRange = `${sheetName}!${columnLetter}${updatedRow.__meta.rowNum}`;
+            // Store the change
+            changedCells.set(cellRange, [[updatedRow[header] || ""]]);
+        });
+    });
+    // Only update if we have changes
+    if (changedCells.size > 0) {
+        // Group adjacent cells in the same column for more efficient updates
+        const optimizedUpdates = optimizeRanges(changedCells);
+        // Send updates to Google Sheets
+        for (const [range, values] of Object.entries(optimizedUpdates)) {
+            Sheets.Spreadsheets.Values.update({ values }, spreadsheetId, range, {
+                valueInputOption: "USER_ENTERED",
+            });
         }
     }
-    // Make sure the rows in the response have the proper structure
-    const properRows = updatedRows.map((row) => {
-        const properRow = {};
-        headers.forEach((header) => {
-            properRow[header] = row[header] || "";
+    // If updates were made, properly return the filtered and updated rows
+    // Make a fresh copy of the returned rows to ensure they have proper structure
+    const resultRows = filteredRows.length > 0
+        ? updatedRows.map((row) => {
+            const resultRow = { __meta: row.__meta };
+            headers.forEach((header) => {
+                resultRow[header] = row[header];
+            });
+            return resultRow;
+        })
+        : [];
+    // Return the updated rows
+    return {
+        rows: resultRows,
+        headers: headers,
+    };
+}
+/**
+ * Convert column index to column letter (0 -> A, 1 -> B, etc.)
+ */
+function getColumnLetter(columnIndex) {
+    let columnLetter = "";
+    let index = columnIndex;
+    while (index >= 0) {
+        columnLetter = String.fromCharCode(65 + (index % 26)) + columnLetter;
+        index = Math.floor(index / 26) - 1;
+    }
+    return columnLetter;
+}
+/**
+ * Optimize update ranges by combining adjacent cells in the same column
+ */
+function optimizeRanges(changedCells) {
+    // Group cells by column
+    const columnGroups = new Map();
+    for (const [cellRange, value] of changedCells.entries()) {
+        // Extract column letter and row number from A1 notation
+        const matches = cellRange.match(/([^!]+)!([A-Z]+)(\d+)$/);
+        if (!matches)
+            continue;
+        const sheet = matches[1];
+        const columnLetter = matches[2];
+        const rowNumber = parseInt(matches[3]);
+        const columnKey = `${sheet}!${columnLetter}`;
+        if (!columnGroups.has(columnKey)) {
+            columnGroups.set(columnKey, new Map());
+        }
+        columnGroups.get(columnKey).set(rowNumber, value[0][0]);
+    }
+    // Create optimized ranges
+    const optimizedUpdates = {};
+    for (const [columnKey, rowsMap] of columnGroups.entries()) {
+        // Sort row numbers
+        const rowNumbers = Array.from(rowsMap.keys()).sort((a, b) => a - b);
+        if (rowNumbers.length === 0)
+            continue;
+        // Instead of finding continuous ranges, just find min and max to create one range per column
+        const minRow = Math.min(...rowNumbers);
+        const maxRow = Math.max(...rowNumbers);
+        // Extract sheet name and column from columnKey
+        const sheet = columnKey.split("!")[0];
+        const column = columnKey.split("!")[1];
+        // Create a single range from min to max row
+        const rangeKey = `${sheet}!${column}${minRow}:${column}${maxRow}`;
+        // Create array of values with proper ordering
+        const values = [];
+        for (let row = minRow; row <= maxRow; row++) {
+            // Use the updated value if it exists, otherwise use empty string to preserve the existing value
+            const value = rowsMap.has(row) ? rowsMap.get(row) : "";
+            values.push([value]);
+        }
+        optimizedUpdates[rangeKey] = values;
+    }
+    return optimizedUpdates;
+}
+
+function appendInternal(table, data) {
+    // If no data is provided or empty array, return empty result
+    if (!data || data.length === 0) {
+        return { rows: [], headers: [] };
+    }
+    // Extract spreadsheet information
+    const spreadsheetId = table.spreadsheetId;
+    const sheetName = table.sheetName;
+    // First, get the current headers from the sheet
+    const response = Sheets.Spreadsheets.Values.get(spreadsheetId, `${sheetName}!1:1`);
+    // If sheet is empty or doesn't exist, cannot append
+    if (!response || !response.values || response.values.length === 0) {
+        throw new Error(`Sheet "${sheetName}" not found or has no headers`);
+    }
+    const headers = response.values[0].map((header) => String(header));
+    // Format data to be appended according to the sheet's headers
+    const rowsToAppend = data.map((item) => {
+        // For each header, get corresponding value from item or empty string
+        return headers.map((header) => {
+            return item[header] !== undefined ? item[header] : "";
         });
-        properRow.__meta = row.__meta;
-        return properRow;
+    });
+    // Use Sheets API to append the data
+    const appendResponse = Sheets.Spreadsheets.Values.append({ values: rowsToAppend }, spreadsheetId, `${sheetName}`, {
+        valueInputOption: "USER_ENTERED",
+        insertDataOption: "INSERT_ROWS",
+    });
+    // Check if append was successful
+    if (!appendResponse ||
+        !appendResponse.updates ||
+        !appendResponse.updates.updatedRange) {
+        throw new Error("Failed to append data to sheet");
+    }
+    // Extract information about the appended rows
+    const updatedRange = appendResponse.updates.updatedRange;
+    const rangeMatch = updatedRange.match(/([^!]+)!([A-Z]+)(\d+):([A-Z]+)(\d+)/);
+    if (!rangeMatch) {
+        throw new Error(`Could not parse updated range: ${updatedRange}`);
+    }
+    // Get start and end row numbers from the updated range
+    const startRow = parseInt(rangeMatch[3]);
+    parseInt(rangeMatch[5]);
+    // Create result rows with metadata
+    const resultRows = rowsToAppend.map((row, index) => {
+        const rowObj = {
+            __meta: {
+                rowNum: startRow + index,
+                colLength: headers.length,
+            },
+        };
+        // Add data according to headers
+        headers.forEach((header, colIndex) => {
+            rowObj[header] = row[colIndex];
+        });
+        return rowObj;
     });
     return {
-        rows: properRows,
+        rows: resultRows,
         headers: headers,
     };
 }
@@ -384,6 +443,11 @@ class GQueryTable {
     update(updateFn) {
         return new GQueryTableFactory(this).update(updateFn);
     }
+    append(data) {
+        // Handle single object by wrapping it in an array
+        const dataArray = Array.isArray(data) ? data : [data];
+        return appendInternal(this, dataArray);
+    }
     read() {
         return new GQueryTableFactory(this).get();
     }
@@ -415,6 +479,11 @@ class GQueryTableFactory {
     }
     update(updateFn) {
         return updateInternal(this, updateFn);
+    }
+    append(data) {
+        // Handle single object by wrapping it in an array
+        const dataArray = Array.isArray(data) ? data : [data];
+        return appendInternal(this.gQueryTable, dataArray);
     }
 }
 var ValueRenderOption;

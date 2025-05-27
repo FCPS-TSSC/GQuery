@@ -1,5 +1,6 @@
 import { getInternal, getManyInternal } from "./get";
 import { updateInternal } from "./update";
+import { appendInternal } from "./append";
 
 export class GQuery {
   spreadsheetId: string;
@@ -67,6 +68,14 @@ export class GQueryTable {
     return new GQueryTableFactory(this).update(updateFn);
   }
 
+  append(
+    data: { [key: string]: any }[] | { [key: string]: any }
+  ): GQueryResult {
+    // Handle single object by wrapping it in an array
+    const dataArray = Array.isArray(data) ? data : [data];
+    return appendInternal(this, dataArray);
+  }
+
   read(): GQueryResult {
     return new GQueryTableFactory(this).get();
   }
@@ -120,6 +129,14 @@ export class GQueryTableFactory {
     updateFn: (row: Record<string, any>) => Record<string, any>
   ): GQueryResult {
     return updateInternal(this, updateFn);
+  }
+
+  append(
+    data: { [key: string]: any }[] | { [key: string]: any }
+  ): GQueryResult {
+    // Handle single object by wrapping it in an array
+    const dataArray = Array.isArray(data) ? data : [data];
+    return appendInternal(this.gQueryTable, dataArray);
   }
 }
 

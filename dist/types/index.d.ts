@@ -17,6 +17,11 @@ export declare class GQueryTable {
     where(filterFn: (row: any) => boolean): GQueryTableFactory;
     join(sheetName: string, sheetColumn: string, joinColumn: string, columnsToReturn?: string[]): GQueryTableFactory;
     update(updateFn: (row: Record<string, any>) => Record<string, any>): GQueryResult;
+    append(data: {
+        [key: string]: any;
+    }[] | {
+        [key: string]: any;
+    }): GQueryResult;
     read(): GQueryResult;
 }
 export declare class GQueryTableFactory {
@@ -35,6 +40,11 @@ export declare class GQueryTableFactory {
     join(sheetName: string, sheetColumn: string, joinColumn: string, columnsToReturn?: string[]): GQueryTableFactory;
     get(): GQueryResult;
     update(updateFn: (row: Record<string, any>) => Record<string, any>): GQueryResult;
+    append(data: {
+        [key: string]: any;
+    }[] | {
+        [key: string]: any;
+    }): GQueryResult;
 }
 export type GQueryReadOptions = {
     valueRenderOption?: ValueRenderOption;
