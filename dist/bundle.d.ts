@@ -15,11 +15,12 @@ declare class GQuery {
  * once read() is called, it will return the result of the query
  */
 declare class GQueryTable {
+    gquery: GQuery;
     spreadsheetId: string;
     spreadsheet: GoogleAppsScript.Spreadsheet.Spreadsheet;
     sheetName: string;
     sheet: GoogleAppsScript.Spreadsheet.Sheet;
-    constructor(spreadsheetId: string, sheetName: string);
+    constructor(gquery: GQuery, spreadsheetId: string, sheetName: string);
     select(headers: string[]): GQueryTableFactory;
     where(filterFn: (row: any) => boolean): GQueryTableFactory;
     join(sheetName: string, sheetColumn: string, joinColumn: string, columnsToReturn?: string[]): GQueryTableFactory;
@@ -65,5 +66,5 @@ declare enum DateTimeRenderOption {
     SERIAL_NUMBER = "SERIAL_NUMBER"
 }
 
-export { DateTimeRenderOption, GQuery, GQueryTable, ValueRenderOption };
+export { DateTimeRenderOption, GQuery, GQueryTable, GQueryTableFactory, ValueRenderOption };
 export type { GQueryReadOptions, GQueryResult, GQueryRow };

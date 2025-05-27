@@ -15,17 +15,18 @@ export declare class GQuery {
  * once read() is called, it will return the result of the query
  */
 export declare class GQueryTable {
+    gquery: GQuery;
     spreadsheetId: string;
     spreadsheet: GoogleAppsScript.Spreadsheet.Spreadsheet;
     sheetName: string;
     sheet: GoogleAppsScript.Spreadsheet.Sheet;
-    constructor(spreadsheetId: string, sheetName: string);
+    constructor(gquery: GQuery, spreadsheetId: string, sheetName: string);
     select(headers: string[]): GQueryTableFactory;
     where(filterFn: (row: any) => boolean): GQueryTableFactory;
     join(sheetName: string, sheetColumn: string, joinColumn: string, columnsToReturn?: string[]): GQueryTableFactory;
     read(): GQueryResult;
 }
-declare class GQueryTableFactory {
+export declare class GQueryTableFactory {
     gQueryTable: GQueryTable;
     selectOption?: string[];
     filterOption?: (row: any) => boolean;
@@ -64,4 +65,3 @@ export declare enum DateTimeRenderOption {
     FORMATTED_STRING = "FORMATTED_STRING",
     SERIAL_NUMBER = "SERIAL_NUMBER"
 }
-export {};
