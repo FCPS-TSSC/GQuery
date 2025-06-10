@@ -1,5 +1,5 @@
 {
-  "name": "gquery",
+  "name": "@FCPS-TSSC/gquery",
   "version": "1.1.0",
   "main": "dist/bundle.js",
   "types": "dist/bundle.d.ts",
