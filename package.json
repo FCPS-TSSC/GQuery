@@ -8,9 +8,7 @@
     "build": "rollup -c && node post-rollup.js"
   },
   "dependencies": {
-    "@types/google-apps-script": "^1.0.97",
-    "gquery": "file:",
-    "quicktools_core": "file:"
+    "@types/google-apps-script": "^1.0.97"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^28.0.3",
