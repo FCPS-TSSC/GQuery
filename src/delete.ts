@@ -1,4 +1,5 @@
-import { callHandler, GQueryTableFactory } from "./index";
+import { GQueryTableFactory } from "./index";
+import { callHandler } from "./ratelimit";
 
 export function deleteInternal(gqueryTableFactory: GQueryTableFactory): {
   deletedRows: number;

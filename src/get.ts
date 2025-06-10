@@ -1,4 +1,5 @@
-import { callHandler, GQuery, GQueryTable, GQueryTableFactory } from "./index";
+import { GQuery, GQueryTable, GQueryTableFactory } from "./index";
+import { callHandler } from "./ratelimit";
 import {
   GQueryReadOptions,
   GQueryResult,

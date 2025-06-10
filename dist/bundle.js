@@ -1,3 +1,23 @@
+function callHandler(fn, retries = 10) {
+    let attempt = 0;
+    while (attempt < retries) {
+        try {
+            return fn();
+        }
+        catch (error) {
+            if (error.message.includes("429")) {
+                attempt++;
+                const backoffDelay = Math.min(Math.pow(2, attempt) + Math.random() * 1000, 32000);
+                Utilities.sleep(backoffDelay);
+            }
+            else {
+                throw error; // Rethrow if it's not a rate limit error
+            }
+        }
+    }
+    throw new Error("Max retries reached for Google Sheets API call.");
+}
+
 var ValueRenderOption;
 (function (ValueRenderOption) {
     ValueRenderOption["FORMATTED_VALUE"] = "FORMATTED_VALUE";
@@ -22,10 +42,10 @@ function getManyInternal(gquery, sheetNames, options) {
     // Step 1: Get headers for each sheet (row 1)
     for (const sheetName of sheetNames) {
         try {
-            const headerResponse = Sheets.Spreadsheets.Values.get(gquery.spreadsheetId, `${sheetName}!1:1`, {
+            const headerResponse = callHandler(() => Sheets.Spreadsheets.Values.get(gquery.spreadsheetId, `${sheetName}!1:1`, {
                 valueRenderOption: valueRenderOption,
                 dateTimeRenderOption: dateTimeRenderOption,
-            });
+            }));
             if (!headerResponse ||
                 !headerResponse.values ||
                 headerResponse.values.length === 0) {
@@ -49,9 +69,9 @@ function getManyInternal(gquery, sheetNames, options) {
     let sheetMetadata = {};
     try {
         // Get spreadsheet metadata including sheet tables if available
-        const metadataResponse = Sheets.Spreadsheets.get(gquery.spreadsheetId, {
+        const metadataResponse = callHandler(() => Sheets.Spreadsheets.get(gquery.spreadsheetId, {
             fields: "sheets(properties(title),tables.columnProperties)",
-        });
+        }));
         if (metadataResponse && metadataResponse.sheets) {
             metadataResponse.sheets.forEach((sheet) => {
                 var _a;
@@ -83,11 +103,11 @@ function getManyInternal(gquery, sheetNames, options) {
     }
     // Batch get data for all sheets (just use the sheet name as the range)
     const dataRanges = sheetsToFetch.map((sheet) => `${sheet}`);
-    const dataResponse = Sheets.Spreadsheets.Values.batchGet(gquery.spreadsheetId, {
+    const dataResponse = callHandler(() => Sheets.Spreadsheets.Values.batchGet(gquery.spreadsheetId, {
         ranges: dataRanges,
         valueRenderOption: valueRenderOption,
         dateTimeRenderOption: dateTimeRenderOption,
-    });
+    }));
     if (!dataResponse || !dataResponse.valueRanges) {
         // Return just the headers if we couldn't get any data
         sheetsToFetch.forEach((sheet) => {
@@ -427,7 +447,7 @@ function updateInternal(gQueryTableFactory, updateFn) {
     const sheetName = gQueryTableFactory.gQueryTable.sheetName;
     const range = sheetName;
     // Fetch current data from the sheet
-    const response = Sheets.Spreadsheets.Values.get(spreadsheetId, range);
+    const response = callHandler(() => Sheets.Spreadsheets.Values.get(spreadsheetId, range));
     const values = response.values || [];
     if (values.length === 0) {
         return { rows: [], headers: [] };
@@ -528,7 +548,7 @@ function updateInternal(gQueryTableFactory, updateFn) {
             });
         }
         // Send a single batch update to Google Sheets
-        Sheets.Spreadsheets.Values.batchUpdate(batchUpdateRequest, spreadsheetId);
+        callHandler(() => Sheets.Spreadsheets.Values.batchUpdate(batchUpdateRequest, spreadsheetId));
     }
     // If updates were made, properly return the filtered and updated rows
     // Make a fresh copy of the returned rows to ensure they have proper structure
@@ -619,7 +639,7 @@ function appendInternal(table, data) {
     const spreadsheetId = table.spreadsheetId;
     const sheetName = table.sheetName;
     // First, get the current headers from the sheet
-    const response = Sheets.Spreadsheets.Values.get(spreadsheetId, `${sheetName}!1:1`);
+    const response = callHandler(() => Sheets.Spreadsheets.Values.get(spreadsheetId, `${sheetName}!1:1`));
     // If sheet is empty or doesn't exist, cannot append
     if (!response || !response.values || response.values.length === 0) {
         throw new Error(`Sheet "${sheetName}" not found or has no headers`);
@@ -638,13 +658,13 @@ function appendInternal(table, data) {
         });
     });
     // Use Sheets API to append the data
-    const appendResponse = Sheets.Spreadsheets.Values.append({ values: rowsToAppend }, spreadsheetId, `${sheetName}`, {
+    const appendResponse = callHandler(() => Sheets.Spreadsheets.Values.append({ values: rowsToAppend }, spreadsheetId, `${sheetName}`, {
         valueInputOption: "USER_ENTERED",
         insertDataOption: "OVERWRITE",
         responseValueRenderOption: "FORMATTED_VALUE",
         responseDateTimeRenderOption: "FORMATTED_STRING",
         includeValuesInResponse: true,
-    });
+    }));
     // Check if append was successful
     if (!appendResponse ||
         !appendResponse.updates ||
@@ -687,7 +707,7 @@ function deleteInternal(gqueryTableFactory) {
     const sheet = gqueryTableFactory.gQueryTable.sheet;
     const sheetId = sheet.getSheetId();
     // Fetch current data from the sheet
-    const response = Sheets.Spreadsheets.Values.get(spreadsheetId, sheetName);
+    const response = callHandler(() => Sheets.Spreadsheets.Values.get(spreadsheetId, sheetName));
     const values = response.values || [];
     if (values.length <= 1) {
         // Only header row or empty sheet
@@ -743,7 +763,7 @@ function deleteInternal(gqueryTableFactory) {
     };
     // Execute the batch update
     try {
-        Sheets.Spreadsheets.batchUpdate(batchUpdateRequest, spreadsheetId);
+        callHandler(() => Sheets.Spreadsheets.batchUpdate(batchUpdateRequest, spreadsheetId));
     }
     catch (error) {
         console.error("Error deleting rows:", error);

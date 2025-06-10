@@ -1,4 +1,5 @@
-import { callHandler, GQueryTable } from "./index";
+import { GQueryTable } from "./index";
+import { callHandler } from "./ratelimit";
 import { GQueryResult, GQueryRow } from "./types";
 
 export function appendInternal(
