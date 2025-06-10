@@ -5,7 +5,8 @@ function callHandler(fn, retries = 10) {
             return fn();
         }
         catch (error) {
-            if (error.message.includes("429")) {
+            if (error.message.includes("429") ||
+                error.message.includes("Quota exceeded for quota metric")) {
                 attempt++;
                 const backoffDelay = Math.min(Math.pow(2, attempt) + Math.random() * 1000, 32000);
                 Utilities.sleep(backoffDelay);
