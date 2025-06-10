@@ -1,4 +1,4 @@
-import { GQueryTableFactory } from "./index";
+import { callHandler, GQueryTableFactory } from "./index";
 import { GQueryResult, GQueryRow } from "./types";
 
 export function updateInternal(
@@ -11,7 +11,9 @@ export function updateInternal(
   const range = sheetName;
 
   // Fetch current data from the sheet
-  const response = Sheets.Spreadsheets.Values.get(spreadsheetId, range);
+  const response = callHandler(() =>
+    Sheets.Spreadsheets.Values.get(spreadsheetId, range)
+  );
   const values = response.values || [];
 
   if (values.length === 0) {
@@ -127,7 +129,9 @@ export function updateInternal(
     }
 
     // Send a single batch update to Google Sheets
-    Sheets.Spreadsheets.Values.batchUpdate(batchUpdateRequest, spreadsheetId);
+    callHandler(() =>
+      Sheets.Spreadsheets.Values.batchUpdate(batchUpdateRequest, spreadsheetId)
+    );
   }
 
   // If updates were made, properly return the filtered and updated rows

@@ -3,6 +3,15 @@ import commonjs from "@rollup/plugin-commonjs";
 import typescript from "@rollup/plugin-typescript";
 import { dts } from "rollup-plugin-dts";
 
+const plugins = [
+  resolve(),
+  commonjs(),
+  typescript({
+    compilerOptions: { downlevelIteration: true },
+    outputToFilesystem: true,
+  }),
+];
+
 export default [
   {
     input: "src/index.ts",
@@ -13,14 +22,7 @@ export default [
       interop: "esModule",
       name: "GQuery",
     },
-    plugins: [
-      resolve(),
-      commonjs(),
-      typescript({
-        compilerOptions: { downlevelIteration: true },
-        outputToFilesystem: true,
-      }),
-    ],
+    plugins,
     external: ["google-apps-script"],
   },
   {
@@ -32,14 +34,7 @@ export default [
       interop: "esModule",
       name: "GQuery",
     },
-    plugins: [
-      resolve(),
-      commonjs(),
-      typescript({
-        compilerOptions: { downlevelIteration: true },
-        outputToFilesystem: true,
-      }),
-    ],
+    plugins,
     external: ["google-apps-script"],
   },
   {

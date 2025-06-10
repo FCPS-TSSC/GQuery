@@ -1,4 +1,4 @@
-import { GQueryTable } from "./index";
+import { callHandler, GQueryTable } from "./index";
 import { GQueryResult, GQueryRow } from "./types";
 
 export function appendInternal(
@@ -15,9 +15,8 @@ export function appendInternal(
   const sheetName = table.sheetName;
 
   // First, get the current headers from the sheet
-  const response = Sheets.Spreadsheets.Values.get(
-    spreadsheetId,
-    `${sheetName}!1:1`
+  const response = callHandler(() =>
+    Sheets.Spreadsheets.Values.get(spreadsheetId, `${sheetName}!1:1`)
   );
 
   // If sheet is empty or doesn't exist, cannot append
@@ -43,17 +42,19 @@ export function appendInternal(
   });
 
   // Use Sheets API to append the data
-  const appendResponse = Sheets.Spreadsheets.Values.append(
-    { values: rowsToAppend },
-    spreadsheetId,
-    `${sheetName}`,
-    {
-      valueInputOption: "USER_ENTERED",
-      insertDataOption: "OVERWRITE",
-      responseValueRenderOption: "FORMATTED_VALUE",
-      responseDateTimeRenderOption: "FORMATTED_STRING",
-      includeValuesInResponse: true,
-    }
+  const appendResponse = callHandler(() =>
+    Sheets.Spreadsheets.Values.append(
+      { values: rowsToAppend },
+      spreadsheetId,
+      `${sheetName}`,
+      {
+        valueInputOption: "USER_ENTERED",
+        insertDataOption: "OVERWRITE",
+        responseValueRenderOption: "FORMATTED_VALUE",
+        responseDateTimeRenderOption: "FORMATTED_STRING",
+        includeValuesInResponse: true,
+      }
+    )
   );
 
   // Check if append was successful

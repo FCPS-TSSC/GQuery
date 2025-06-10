@@ -1,4 +1,4 @@
-import { GQuery, GQueryTable, GQueryTableFactory } from "./index";
+import { callHandler, GQuery, GQueryTable, GQueryTableFactory } from "./index";
 import {
   GQueryReadOptions,
   GQueryResult,
@@ -30,13 +30,15 @@ export function getManyInternal(
   // Step 1: Get headers for each sheet (row 1)
   for (const sheetName of sheetNames) {
     try {
-      const headerResponse = Sheets.Spreadsheets.Values.get(
-        gquery.spreadsheetId,
-        `${sheetName}!1:1`,
-        {
-          valueRenderOption: valueRenderOption,
-          dateTimeRenderOption: dateTimeRenderOption,
-        }
+      const headerResponse = callHandler(() =>
+        Sheets.Spreadsheets.Values.get(
+          gquery.spreadsheetId,
+          `${sheetName}!1:1`,
+          {
+            valueRenderOption: valueRenderOption,
+            dateTimeRenderOption: dateTimeRenderOption,
+          }
+        )
       );
 
       if (
@@ -72,9 +74,11 @@ export function getManyInternal(
 
   try {
     // Get spreadsheet metadata including sheet tables if available
-    const metadataResponse = Sheets.Spreadsheets.get(gquery.spreadsheetId, {
-      fields: "sheets(properties(title),tables.columnProperties)",
-    });
+    const metadataResponse = callHandler(() =>
+      Sheets.Spreadsheets.get(gquery.spreadsheetId, {
+        fields: "sheets(properties(title),tables.columnProperties)",
+      })
+    );
 
     if (metadataResponse && metadataResponse.sheets) {
       metadataResponse.sheets.forEach((sheet) => {
@@ -107,13 +111,12 @@ export function getManyInternal(
 
   // Batch get data for all sheets (just use the sheet name as the range)
   const dataRanges = sheetsToFetch.map((sheet) => `${sheet}`);
-  const dataResponse = Sheets.Spreadsheets.Values.batchGet(
-    gquery.spreadsheetId,
-    {
+  const dataResponse = callHandler(() =>
+    Sheets.Spreadsheets.Values.batchGet(gquery.spreadsheetId, {
       ranges: dataRanges,
       valueRenderOption: valueRenderOption,
       dateTimeRenderOption: dateTimeRenderOption,
-    }
+    })
   );
 
   if (!dataResponse || !dataResponse.valueRanges) {

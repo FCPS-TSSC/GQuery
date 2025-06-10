@@ -1,4 +1,4 @@
-import { GQueryTableFactory } from "./index";
+import { callHandler, GQueryTableFactory } from "./index";
 
 export function deleteInternal(gqueryTableFactory: GQueryTableFactory): {
   deletedRows: number;
@@ -10,7 +10,9 @@ export function deleteInternal(gqueryTableFactory: GQueryTableFactory): {
   const sheetId = sheet.getSheetId();
 
   // Fetch current data from the sheet
-  const response = Sheets.Spreadsheets.Values.get(spreadsheetId, sheetName);
+  const response = callHandler(() =>
+    Sheets.Spreadsheets.Values.get(spreadsheetId, sheetName)
+  );
   const values = response.values || [];
 
   if (values.length <= 1) {
@@ -76,7 +78,9 @@ export function deleteInternal(gqueryTableFactory: GQueryTableFactory): {
 
   // Execute the batch update
   try {
-    Sheets.Spreadsheets.batchUpdate(batchUpdateRequest, spreadsheetId);
+    callHandler(() =>
+      Sheets.Spreadsheets.batchUpdate(batchUpdateRequest, spreadsheetId)
+    );
   } catch (error) {
     console.error("Error deleting rows:", error);
     return { deletedRows: 0 };
