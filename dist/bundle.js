@@ -1,4 +1,4 @@
-function callHandler(fn, retries = 10) {
+function callHandler(fn, retries = 16) {
     let attempt = 0;
     while (attempt < retries) {
         try {
@@ -8,7 +8,7 @@ function callHandler(fn, retries = 10) {
             if (error.message.includes("429") ||
                 error.message.includes("Quota exceeded for quota metric")) {
                 attempt++;
-                const backoffDelay = Math.min(Math.pow(2, attempt) + Math.random() * 1000, 32000);
+                const backoffDelay = Math.min(Math.pow(2, attempt) + Math.random() * 1000, 64000);
                 Utilities.sleep(backoffDelay);
             }
             else {
@@ -525,11 +525,26 @@ function updateInternal(gQueryTableFactory, updateFn) {
             // Skip if values are the same
             if (originalRow[header] === updatedValue)
                 return;
-            // Use A1 notation for the column (A, B, C, etc.)
-            const columnLetter = getColumnLetter(columnIndex);
-            const cellRange = `${sheetName}!${columnLetter}${updatedRow.__meta.rowNum}`;
-            // Store the change
-            changedCells.set(cellRange, [[updatedValue || ""]]);
+            // Only update if we have a meaningful value or if the original was empty
+            // This prevents overwriting existing data with empty values
+            if (updatedValue !== undefined &&
+                updatedValue !== null &&
+                updatedValue !== "") {
+                // Use A1 notation for the column (A, B, C, etc.)
+                const columnLetter = getColumnLetter(columnIndex);
+                const cellRange = `${sheetName}!${columnLetter}${updatedRow.__meta.rowNum}`;
+                // Store the change
+                changedCells.set(cellRange, [[updatedValue]]);
+            }
+            else if (originalRow[header] === "" ||
+                originalRow[header] === undefined ||
+                originalRow[header] === null) {
+                // Only clear the cell if the original was already empty and we explicitly want to set it to empty
+                const columnLetter = getColumnLetter(columnIndex);
+                const cellRange = `${sheetName}!${columnLetter}${updatedRow.__meta.rowNum}`;
+                changedCells.set(cellRange, [[updatedValue || ""]]);
+            }
+            // If updatedValue is empty but original had content, we skip the update to preserve existing data
         });
     });
     // Only update if we have changes
