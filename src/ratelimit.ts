@@ -1,4 +1,4 @@
-export function callHandler<T>(fn: () => T, retries: number = 10): T {
+export function callHandler<T>(fn: () => T, retries: number = 16): T {
   let attempt = 0;
 
   while (attempt < retries) {
@@ -12,7 +12,7 @@ export function callHandler<T>(fn: () => T, retries: number = 10): T {
         attempt++;
         const backoffDelay = Math.min(
           Math.pow(2, attempt) + Math.random() * 1000,
-          32000
+          64000
         );
         Utilities.sleep(backoffDelay);
       } else {
