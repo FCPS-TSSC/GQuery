@@ -31,6 +31,157 @@ var DateTimeRenderOption;
     DateTimeRenderOption["SERIAL_NUMBER"] = "SERIAL_NUMBER";
 })(DateTimeRenderOption || (DateTimeRenderOption = {}));
 
+/**
+ * Convert column index to column letter (0 -> A, 1 -> B, etc.)
+ */
+function getColumnLetter(columnIndex) {
+    let columnLetter = "";
+    let index = columnIndex;
+    while (index >= 0) {
+        columnLetter = String.fromCharCode(65 + (index % 26)) + columnLetter;
+        index = Math.floor(index / 26) - 1;
+    }
+    return columnLetter;
+}
+/**
+ * Convert raw row data to GQueryRow object with proper typing and metadata
+ */
+function mapRowToObject(rowData, headers, rowIndex, applyTypeConversion = true) {
+    const row = {
+        __meta: {
+            rowNum: rowIndex + 2, // +2 because we're starting from index 0 and row 1 is headers
+            colLength: rowData.length,
+        },
+    };
+    // First initialize all header fields to empty strings
+    headers.forEach((header) => {
+        row[header] = "";
+    });
+    // Map each column value to its corresponding header
+    for (let j = 0; j < Math.min(rowData.length, headers.length); j++) {
+        const header = headers[j];
+        let value = rowData[j];
+        if (value === null || value === undefined) {
+            continue; // Skip processing but keep the empty string initialized earlier
+        }
+        // Apply type conversions if enabled
+        if (applyTypeConversion && typeof value === "string" && value !== "") {
+            value = convertStringValue(value);
+        }
+        row[header] = value;
+    }
+    return row;
+}
+/**
+ * Convert string values to appropriate types (boolean, date, etc.)
+ */
+function convertStringValue(value) {
+    // Auto-detect booleans
+    if (value.toLowerCase() === "true" || value.toLowerCase() === "false") {
+        return value.toLowerCase() === "true";
+    }
+    // Auto-detect dates (simple pattern for dates like MM/DD/YYYY, etc.)
+    if (/^\d{1,2}\/\d{1,2}\/\d{4}(\s\d{1,2}:\d{1,2}(:\d{1,2})?)?$/.test(value)) {
+        try {
+            const dateValue = new Date(value);
+            if (!isNaN(dateValue.getTime())) {
+                return dateValue;
+            }
+        }
+        catch (e) {
+            // Keep as string if conversion fails
+        }
+    }
+    return value;
+}
+/**
+ * Normalize value for storage (convert Date objects to strings, etc.)
+ */
+function normalizeValueForStorage(value) {
+    if (value instanceof Date) {
+        return value.toLocaleString();
+    }
+    return value !== undefined && value !== null ? value : "";
+}
+/**
+ * Apply data type conversions based on metadata
+ */
+function applyDataTypeConversion(value, dataType) {
+    if (!dataType || value === "" || value === null || value === undefined) {
+        return value;
+    }
+    switch (dataType) {
+        case "BOOLEAN":
+            if (typeof value === "string") {
+                return value.toLowerCase() === "true";
+            }
+            return Boolean(value);
+        case "DATE_TIME":
+        case "DATE":
+        case "DATETIME":
+            try {
+                const dateValue = new Date(value);
+                if (!isNaN(dateValue.getTime())) {
+                    return dateValue;
+                }
+            }
+            catch (e) {
+                // Keep original value if conversion fails
+            }
+            return value;
+        case "NUMBER":
+            const numValue = Number(value);
+            if (!isNaN(numValue)) {
+                return numValue;
+            }
+            return value;
+        default:
+            return value;
+    }
+}
+/**
+ * Create a lookup table for joins
+ */
+function createJoinLookup(joinData, joinColumn) {
+    const joinMap = {};
+    joinData.forEach((joinRow) => {
+        const joinKey = String(joinRow[joinColumn]);
+        if (!joinMap[joinKey]) {
+            joinMap[joinKey] = [];
+        }
+        joinMap[joinKey].push(joinRow);
+    });
+    return joinMap;
+}
+/**
+ * Handle errors consistently across the library
+ */
+function handleError(operation, error) {
+    console.error(`Error in ${operation}:`, error);
+}
+/**
+ * Check if two values are equal for comparison purposes
+ */
+function valuesEqual(a, b) {
+    // Handle Date objects
+    if (a instanceof Date && b instanceof Date) {
+        return a.getTime() === b.getTime();
+    }
+    // Handle Date to string comparison
+    if (a instanceof Date && typeof b === "string") {
+        return a.toLocaleString() === b;
+    }
+    if (b instanceof Date && typeof a === "string") {
+        return b.toLocaleString() === a;
+    }
+    // Handle null/undefined equivalence with empty string
+    if ((a === null || a === undefined || a === "") &&
+        (b === null || b === undefined || b === "")) {
+        return true;
+    }
+    return a === b;
+}
+
 function getManyInternal(gquery, sheetNames, options) {
     if (!sheetNames || sheetNames.length === 0) {
         return {};
@@ -39,37 +190,24 @@ function getManyInternal(gquery, sheetNames, options) {
     const valueRenderOption = (options === null || options === void 0 ? void 0 : options.valueRenderOption) || ValueRenderOption.FORMATTED_VALUE;
     const dateTimeRenderOption = (options === null || options === void 0 ? void 0 : options.dateTimeRenderOption) || DateTimeRenderOption.FORMATTED_STRING;
     const result = {};
-    const headersMap = {};
-    // Step 1: Get headers for each sheet (row 1)
-    for (const sheetName of sheetNames) {
-        try {
-            const headerResponse = callHandler(() => Sheets.Spreadsheets.Values.get(gquery.spreadsheetId, `${sheetName}!1:1`, {
-                valueRenderOption: valueRenderOption,
-                dateTimeRenderOption: dateTimeRenderOption,
-            }));
-            if (!headerResponse ||
-                !headerResponse.values ||
-                headerResponse.values.length === 0) {
-                // Handle empty sheet or sheet with no headers
-                result[sheetName] = { headers: [], rows: [] };
-                continue;
-            }
-            headersMap[sheetName] = headerResponse.values[0].map((header) => String(header));
-        }
-        catch (e) {
-            console.error(`Error fetching headers for sheet ${sheetName}:`, e);
-            result[sheetName] = { headers: [], rows: [] };
-        }
-    }
-    // Step 2: Get data for sheets that have headers
-    const sheetsToFetch = Object.keys(headersMap).filter((sheet) => headersMap[sheet].length > 0);
-    if (sheetsToFetch.length === 0) {
+    // Optimize: Get data for all sheets in a single batch call including headers
+    // This reduces API calls from 2*n to 1 call
+    const dataRanges = sheetNames.map((sheet) => `${sheet}`);
+    const dataResponse = callHandler(() => Sheets.Spreadsheets.Values.batchGet(gquery.spreadsheetId, {
+        ranges: dataRanges,
+        valueRenderOption: valueRenderOption,
+        dateTimeRenderOption: dateTimeRenderOption,
+    }));
+    if (!dataResponse || !dataResponse.valueRanges) {
+        // Return empty results for all sheets
+        sheetNames.forEach((sheet) => {
+            result[sheet] = { headers: [], rows: [] };
+        });
         return result;
     }
-    // Also fetch metadata for each sheet to determine data types
+    // Get spreadsheet metadata for data types (single API call)
     let sheetMetadata = {};
     try {
-        // Get spreadsheet metadata including sheet tables if available
         const metadataResponse = callHandler(() => Sheets.Spreadsheets.get(gquery.spreadsheetId, {
             fields: "sheets(properties(title),tables.columnProperties)",
         }));
@@ -77,16 +215,13 @@ function getManyInternal(gquery, sheetNames, options) {
             metadataResponse.sheets.forEach((sheet) => {
                 var _a;
                 const sheetName = (_a = sheet.properties) === null || _a === void 0 ? void 0 : _a.title;
-                if (!sheetName || !sheetsToFetch.includes(sheetName))
+                if (!sheetName || !sheetNames.includes(sheetName))
                     return;
                 // @ts-expect-error: TypeScript may not recognize the tables property
                 if (sheet.tables && sheet.tables.length > 0) {
-                    // Use the first table definition for column properties
-                    // @ts-expect-error: TypeScript may not recognize the tables property
                     const table = sheet.tables[0];
                     if (table.columnProperties) {
                         sheetMetadata[sheetName] = {};
-                        // For each column property, store its data type
                         Object.keys(table.columnProperties).forEach((column) => {
                             const dataType = table.columnProperties[column].dataType;
                             if (dataType) {
@@ -99,149 +234,46 @@ function getManyInternal(gquery, sheetNames, options) {
         }
     }
     catch (e) {
-        console.error("Error fetching metadata:", e);
-        // Continue without metadata - types won't be converted
-    }
-    // Batch get data for all sheets (just use the sheet name as the range)
-    const dataRanges = sheetsToFetch.map((sheet) => `${sheet}`);
-    const dataResponse = callHandler(() => Sheets.Spreadsheets.Values.batchGet(gquery.spreadsheetId, {
-        ranges: dataRanges,
-        valueRenderOption: valueRenderOption,
-        dateTimeRenderOption: dateTimeRenderOption,
-    }));
-    if (!dataResponse || !dataResponse.valueRanges) {
-        // Return just the headers if we couldn't get any data
-        sheetsToFetch.forEach((sheet) => {
-            result[sheet] = {
-                headers: headersMap[sheet],
-                rows: [],
-            };
-        });
-        return result;
+        handleError("fetching metadata", e);
     }
     // Process each value range from the batch response
     dataResponse.valueRanges.forEach((valueRange, index) => {
-        const sheetName = sheetsToFetch[index];
-        const headers = headersMap[sheetName];
+        const sheetName = sheetNames[index];
         if (!valueRange.values || valueRange.values.length === 0) {
-            // Sheet exists but has no data rows
+            // Sheet exists but has no data
+            result[sheetName] = { headers: [], rows: [] };
+            return;
+        }
+        // Extract headers from first row
+        const headers = valueRange.values[0].map((header) => String(header));
+        if (valueRange.values.length === 1) {
+            // Only headers, no data rows
             result[sheetName] = { headers, rows: [] };
             return;
         }
-        const rows = [];
         const columnTypes = sheetMetadata[sheetName] || {};
-        // Process data rows
-        valueRange.values.forEach((rowData, rowIndex) => {
-            const row = {
-                __meta: {
-                    rowNum: rowIndex + 2, // +2 because we're starting from index 0 and row 1 is headers
-                    colLength: rowData.length,
-                },
-            };
-            // First initialize all header fields to empty strings
-            headers.forEach((header) => {
-                row[header] = "";
-            });
-            // Map each column value to its corresponding header
-            for (let j = 0; j < Math.min(rowData.length, headers.length); j++) {
-                const header = headers[j];
-                let value = rowData[j];
-                if (value === null || value === undefined) {
-                    continue; // Skip processing but keep the empty string initialized earlier
-                }
-                // Apply type conversions based on metadata if available
-                if (columnTypes[header] && value !== "") {
-                    const dataType = columnTypes[header];
-                    if (dataType === "BOOLEAN") {
-                        // Convert to boolean
-                        if (typeof value === "string") {
-                            value = value.toLowerCase() === "true";
-                        }
+        const dataRows = valueRange.values.slice(1);
+        // Use the utility function to map rows
+        const rows = dataRows.map((rowData, rowIndex) => {
+            const row = mapRowToObject(rowData, headers, rowIndex, true);
+            // Apply metadata-based type conversions
+            if (Object.keys(columnTypes).length > 0) {
+                headers.forEach((header) => {
+                    if (columnTypes[header] && row[header] !== "") {
+                        row[header] = applyDataTypeConversion(row[header], columnTypes[header]);
                     }
-                    else if (dataType === "DATE_TIME") {
-                        // Convert to Date object
-                        try {
-                            const dateValue = new Date(value);
-                            if (!isNaN(dateValue.getTime())) {
-                                value = dateValue;
-                            }
-                        }
-                        catch (e) {
-                            // Keep original value if conversion fails
-                        }
-                    }
-                    else if (dataType === "NUMBER") {
-                        // Convert to number
-                        const numValue = Number(value);
-                        if (!isNaN(numValue)) {
-                            value = numValue;
-                        }
-                    }
-                }
-                else {
-                    // Try automatic type inference for common patterns
-                    if (typeof value === "string") {
-                        // Auto-detect booleans
-                        if (value.toLowerCase() === "true" ||
-                            value.toLowerCase() === "false") {
-                            value = value.toLowerCase() === "true";
-                        }
-                        // Auto-detect dates (simple pattern for dates like MM/DD/YYYY, etc.)
-                        else if (/^\d{1,2}\/\d{1,2}\/\d{4}(\s\d{1,2}:\d{1,2}(:\d{1,2})?)?$/.test(value)) {
-                            try {
-                                const dateValue = new Date(value);
-                                if (!isNaN(dateValue.getTime())) {
-                                    value = dateValue;
-                                }
-                            }
-                            catch (e) {
-                                // Keep as string if conversion fails
-                            }
-                        }
-                    }
-                }
-                row[header] = value;
+                });
             }
-            rows.push(row);
+            return row;
         });
         result[sheetName] = { headers, rows };
     });
-    // Make sure all sheets in headersMap have an entry in result
-    sheetsToFetch.forEach((sheet) => {
+    // Ensure all requested sheets have an entry in result
+    sheetNames.forEach((sheet) => {
         if (!result[sheet]) {
-            result[sheet] = {
-                headers: headersMap[sheet],
-                rows: [],
-            };
+            result[sheet] = { headers: [], rows: [] };
         }
     });
-    // Convert data types based on metadata if available
-    if (Object.keys(sheetMetadata).length > 0) {
-        Object.keys(result).forEach((sheetName) => {
-            const sheetResult = result[sheetName];
-            const metadata = sheetMetadata[sheetName];
-            if (sheetResult && sheetResult.rows && metadata) {
-                sheetResult.rows = sheetResult.rows.map((row) => {
-                    const newRow = Object.assign({}, row);
-                    Object.keys(metadata).forEach((column) => {
-                        const dataType = metadata[column];
-                        // Convert based on data type
-                        if (dataType === "NUMBER") {
-                            newRow[column] = Number(row[column]);
-                        }
-                        else if (dataType === "BOOLEAN") {
-                            newRow[column] = row[column] === "TRUE";
-                        }
-                        else if (dataType === "DATE" || dataType === "DATETIME") {
-                            newRow[column] = new Date(row[column]);
-                        }
-                        // Add more conversions as needed
-                    });
-                    return newRow;
-                });
-            }
-        });
-    }
     return result;
 }
 function getInternal(gqueryTableFactory, options) {
@@ -276,20 +308,8 @@ function getInternal(gqueryTableFactory, options) {
             if (!joinData || !joinData.rows || joinData.rows.length === 0) {
                 return; // Skip this join
             }
-            // Create join lookup table
-            const joinMap = {};
-            // Check if the join column exists in the join table
-            const joinHeaders = joinData.headers;
-            if (!joinHeaders.includes(sheetColumn)) {
-                return; // Skip this join
-            }
-            joinData.rows.forEach((joinRow) => {
-                const joinKey = String(joinRow[sheetColumn]);
-                if (!joinMap[joinKey]) {
-                    joinMap[joinKey] = [];
-                }
-                joinMap[joinKey].push(joinRow);
-            });
+            // Create join lookup table using utility function
+            const joinMap = createJoinLookup(joinData.rows, sheetColumn);
             // Perform the join operation
             rows = rows.map((row) => {
                 const localJoinValue = row[joinColumn];
@@ -388,10 +408,16 @@ function queryInternal(gqueryTable, query) {
             Authorization: "Bearer " + ScriptApp.getOAuthToken(),
         },
     });
-    var jsonResponse = JSON.parse(response
-        .getContentText()
-        .replace("/*O_o*/\n", "")
-        .replace(/(google\.visualization\.Query\.setResponse\()|(\);)/gm, "")), table = jsonResponse.table;
+    try {
+        var jsonResponse = JSON.parse(response
+            .getContentText()
+            .replace("/*O_o*/\n", "")
+            .replace(/(google\.visualization\.Query\.setResponse\()|(\);)/gm, "")), table = jsonResponse.table;
+    }
+    catch (e) {
+        handleError("parsing query response", e);
+        return { headers: [], rows: [] };
+    }
     // Extract column headers
     const headers = table.cols.map((col) => col.label);
     // Map rows to proper GQueryRow format
@@ -455,14 +481,7 @@ function updateInternal(gQueryTableFactory, updateFn) {
     }
     // Extract headers and rows
     const headers = values[0];
-    const rows = values.slice(1).map((row) => {
-        const obj = {};
-        headers.forEach((header, i) => {
-            // Ensure all properties are initialized, even if empty
-            obj[header] = row[i] !== undefined ? row[i] : "";
-        });
-        return obj;
-    });
+    const rows = values.slice(1).map((row, index) => mapRowToObject(row, headers, index, false));
     // Filter rows if where function is provided
     let filteredRows = [];
     if (gQueryTableFactory.filterOption) {
@@ -472,13 +491,13 @@ function updateInternal(gQueryTableFactory, updateFn) {
                     return gQueryTableFactory.filterOption(row);
                 }
                 catch (error) {
-                    console.error("Error filtering row:", error);
+                    handleError("filtering row", error);
                     return false;
                 }
             });
         }
         catch (error) {
-            console.error("Error in filter function:", error);
+            handleError("filter function", error);
             return { rows: [], headers };
         }
     }
@@ -495,7 +514,7 @@ function updateInternal(gQueryTableFactory, updateFn) {
             Object.assign(updatedRow, result);
         }
         catch (error) {
-            console.error("Error updating row:", error);
+            handleError("updating row", error);
         }
         // Find the index of this row in the original data array
         const rowIndex = rows.findIndex((origRow) => Object.keys(origRow).every((key) => origRow[key] === row[key]));
@@ -517,16 +536,13 @@ function updateInternal(gQueryTableFactory, updateFn) {
         const rowIndex = updatedRow.__meta.rowNum - 2;
         const originalRow = rows[rowIndex];
         headers.forEach((header, columnIndex) => {
-            let updatedValue = updatedRow[header];
-            // Convert Date objects to strings for comparison and storage
-            if (updatedValue instanceof Date) {
-                updatedValue = updatedValue.toLocaleString();
-            }
+            let updatedValue = normalizeValueForStorage(updatedRow[header]);
+            let originalValue = normalizeValueForStorage(originalRow[header]);
             // Skip if values are the same
-            if (originalRow[header] === updatedValue)
+            if (valuesEqual(originalValue, updatedValue))
                 return;
-            // Only update if we have a meaningful value or if the original was empty
-            // This prevents overwriting existing data with empty values
+            // Only update if we have a meaningful value OR if we explicitly want to clear a cell
+            // This prevents overwriting existing data with empty values unless intentional
             if (updatedValue !== undefined &&
                 updatedValue !== null &&
                 updatedValue !== "") {
@@ -536,9 +552,8 @@ function updateInternal(gQueryTableFactory, updateFn) {
                 // Store the change
                 changedCells.set(cellRange, [[updatedValue]]);
             }
-            else if (originalRow[header] === "" ||
-                originalRow[header] === undefined ||
-                originalRow[header] === null) {
+            else if ((originalValue === "" || originalValue === undefined || originalValue === null) &&
+                (updatedValue === "" || updatedValue === undefined || updatedValue === null)) {
                 // Only clear the cell if the original was already empty and we explicitly want to set it to empty
                 const columnLetter = getColumnLetter(columnIndex);
                 const cellRange = `${sheetName}!${columnLetter}${updatedRow.__meta.rowNum}`;
@@ -549,18 +564,17 @@ function updateInternal(gQueryTableFactory, updateFn) {
     });
     // Only update if we have changes
     if (changedCells.size > 0) {
-        // Group adjacent cells in the same column for more efficient updates
-        const optimizedUpdates = optimizeRanges(changedCells);
-        // Create a batch update request
+        // Create individual cell updates instead of range optimization
+        // to prevent overwriting existing data in non-modified cells
         const batchUpdateRequest = {
             data: [],
             valueInputOption: "USER_ENTERED",
         };
-        // Add each range to the batch request
-        for (const [range, values] of Object.entries(optimizedUpdates)) {
+        // Add each individual cell update to the batch request
+        for (const [cellRange, value] of changedCells.entries()) {
             batchUpdateRequest.data.push({
-                range: range,
-                values: values,
+                range: cellRange,
+                values: value,
             });
         }
         // Send a single batch update to Google Sheets
@@ -583,68 +597,6 @@ function updateInternal(gQueryTableFactory, updateFn) {
         headers: headers,
     };
 }
-/**
- * Convert column index to column letter (0 -> A, 1 -> B, etc.)
- */
-function getColumnLetter(columnIndex) {
-    let columnLetter = "";
-    let index = columnIndex;
-    while (index >= 0) {
-        columnLetter = String.fromCharCode(65 + (index % 26)) + columnLetter;
-        index = Math.floor(index / 26) - 1;
-    }
-    return columnLetter;
-}
-/**
- * Optimize update ranges by combining adjacent cells in the same column
- */
-function optimizeRanges(changedCells) {
-    // Group cells by column
-    const columnGroups = new Map();
-    for (const [cellRange, value] of changedCells.entries()) {
-        // Extract column letter and row number from A1 notation
-        const matches = cellRange.match(/([^!]+)!([A-Z]+)(\d+)$/);
-        if (!matches)
-            continue;
-        const sheet = matches[1];
-        const columnLetter = matches[2];
-        const rowNumber = parseInt(matches[3]);
-        const columnKey = `${sheet}!${columnLetter}`;
-        if (!columnGroups.has(columnKey)) {
-            columnGroups.set(columnKey, new Map());
-        }
-        columnGroups.get(columnKey).set(rowNumber, value[0][0]);
-    }
-    // Create optimized ranges
-    const optimizedUpdates = {};
-    for (const [columnKey, rowsMap] of columnGroups.entries()) {
-        // Sort row numbers
-        const rowNumbers = Array.from(rowsMap.keys()).sort((a, b) => a - b);
-        if (rowNumbers.length === 0)
-            continue;
-        // Find min and max to create one range per column
-        const minRow = Math.min(...rowNumbers);
-        const maxRow = Math.max(...rowNumbers);
-        // Extract sheet name and column from columnKey
-        const sheet = columnKey.split("!")[0];
-        const column = columnKey.split("!")[1];
-        // Create a single range from min to max row
-        const rangeKey = `${sheet}!${column}${minRow}:${column}${maxRow}`;
-        // Create array of values with proper ordering
-        const values = [];
-        for (let row = minRow; row <= maxRow; row++) {
-            // Use the updated value if it exists, otherwise use empty string to preserve the existing value
-            let value = rowsMap.has(row) ? rowsMap.get(row) : "";
-            // Convert Date objects to strings
-            if (value instanceof Date) {
-                value = value.toLocaleString();
-            }
-            values.push([value]);
-        }
-        optimizedUpdates[rangeKey] = values;
-    }
-    return optimizedUpdates;
-}
 
 function appendInternal(table, data) {
     // If no data is provided or empty array, return empty result
@@ -665,11 +617,7 @@ function appendInternal(table, data) {
     const rowsToAppend = data.map((item) => {
         // For each header, get corresponding value from item or empty string
         return headers.map((header) => {
-            let value = item[header];
-            // Convert Date objects to strings
-            if (value instanceof Date) {
-                value = value.toLocaleString();
-            }
+            const value = normalizeValueForStorage(item[header]);
             return value !== undefined ? value : "";
         });
     });
@@ -729,20 +677,9 @@ function deleteInternal(gqueryTableFactory) {
         // Only header row or empty sheet
         return { deletedRows: 0 };
     }
-    // Extract headers and rows
+    // Extract headers and rows using shared utility
     const headers = values[0];
-    const rows = values.slice(1).map((row, rowIndex) => {
-        const obj = {
-            __meta: {
-                rowNum: rowIndex + 2, // +2 because we're starting from index 0 and row 1 is headers
-                colLength: row.length,
-            },
-        };
-        headers.forEach((header, i) => {
-            obj[header] = i < row.length ? row[i] : "";
-        });
-        return obj;
-    });
+    const rows = values.slice(1).map((row, rowIndex) => mapRowToObject(row, headers, rowIndex, false));
     // If no filter option, nothing to delete
     if (!gqueryTableFactory.filterOption || rows.length === 0) {
         return { deletedRows: 0 };
@@ -753,7 +690,7 @@ function deleteInternal(gqueryTableFactory) {
             return gqueryTableFactory.filterOption(row);
         }
         catch (error) {
-            console.error("Error filtering row:", error);
+            handleError("filtering row for deletion", error);
             return false;
         }
     });
@@ -782,7 +719,7 @@ function deleteInternal(gqueryTableFactory) {
         callHandler(() => Sheets.Spreadsheets.batchUpdate(batchUpdateRequest, spreadsheetId));
     }
     catch (error) {
-        console.error("Error deleting rows:", error);
+        handleError("deleting rows", error);
         return { deletedRows: 0 };
     }
     return { deletedRows: rowsToDelete.length };
