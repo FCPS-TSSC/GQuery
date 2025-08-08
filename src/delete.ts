@@ -1,5 +1,6 @@
 import { GQueryTableFactory } from "./index";
 import { callHandler } from "./ratelimit";
+import { mapRowToObject, handleError } from "./utils";
 
 export function deleteInternal(gqueryTableFactory: GQueryTableFactory): {
   deletedRows: number;
@@ -21,22 +22,11 @@ export function deleteInternal(gqueryTableFactory: GQueryTableFactory): {
     return { deletedRows: 0 };
   }
 
-  // Extract headers and rows
+  // Extract headers and rows using shared utility
   const headers = values[0];
-  const rows: Record<string, any>[] = values.slice(1).map((row, rowIndex) => {
-    const obj: Record<string, any> = {
-      __meta: {
-        rowNum: rowIndex + 2, // +2 because we're starting from index 0 and row 1 is headers
-        colLength: row.length,
-      },
-    };
-
-    headers.forEach((header: string, i: number) => {
-      obj[header] = i < row.length ? row[i] : "";
-    });
-
-    return obj;
-  });
+  const rows = values.slice(1).map((row, rowIndex) => 
+    mapRowToObject(row, headers, rowIndex, false)
+  );
 
   // If no filter option, nothing to delete
   if (!gqueryTableFactory.filterOption || rows.length === 0) {
@@ -48,7 +38,7 @@ export function deleteInternal(gqueryTableFactory: GQueryTableFactory): {
     try {
       return gqueryTableFactory.filterOption(row);
     } catch (error) {
-      console.error("Error filtering row:", error);
+      handleError("filtering row for deletion", error);
       return false;
     }
   });
@@ -83,7 +73,7 @@ export function deleteInternal(gqueryTableFactory: GQueryTableFactory): {
       Sheets.Spreadsheets.batchUpdate(batchUpdateRequest, spreadsheetId)
     );
   } catch (error) {
-    console.error("Error deleting rows:", error);
+    handleError("deleting rows", error);
     return { deletedRows: 0 };
   }
 

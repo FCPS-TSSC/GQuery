@@ -1,6 +1,7 @@
 import { GQueryTable } from "./index";
 import { callHandler } from "./ratelimit";
 import { GQueryResult, GQueryRow } from "./types";
+import { normalizeValueForStorage } from "./utils";
 
 export function appendInternal(
   table: GQueryTable,
@@ -31,13 +32,7 @@ export function appendInternal(
   const rowsToAppend = data.map((item) => {
     // For each header, get corresponding value from item or empty string
     return headers.map((header) => {
-      let value = item[header];
-
-      // Convert Date objects to strings
-      if (value instanceof Date) {
-        value = value.toLocaleString();
-      }
-
+      const value = normalizeValueForStorage(item[header]);
       return value !== undefined ? value : "";
     });
   });

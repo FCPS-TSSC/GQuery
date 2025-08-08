@@ -1,6 +1,13 @@
 import { GQueryTableFactory } from "./index";
 import { callHandler } from "./ratelimit";
 import { GQueryResult, GQueryRow } from "./types";
+import { 
+  getColumnLetter, 
+  mapRowToObject, 
+  normalizeValueForStorage,
+  valuesEqual,
+  handleError
+} from "./utils";
 
 export function updateInternal(
   gQueryTableFactory: GQueryTableFactory,
@@ -23,14 +30,9 @@ export function updateInternal(
 
   // Extract headers and rows
   const headers = values[0];
-  const rows = values.slice(1).map((row) => {
-    const obj: Record<string, any> = {};
-    headers.forEach((header: string, i: number) => {
-      // Ensure all properties are initialized, even if empty
-      obj[header] = row[i] !== undefined ? row[i] : "";
-    });
-    return obj;
-  });
+  const rows = values.slice(1).map((row, index) => 
+    mapRowToObject(row, headers, index, false)
+  );
 
   // Filter rows if where function is provided
   let filteredRows = [];
@@ -40,12 +42,12 @@ export function updateInternal(
         try {
           return gQueryTableFactory.filterOption(row);
         } catch (error) {
-          console.error("Error filtering row:", error);
+          handleError("filtering row", error);
           return false;
         }
       });
     } catch (error) {
-      console.error("Error in filter function:", error);
+      handleError("filter function", error);
       return { rows: [], headers };
     }
   } else {
@@ -61,7 +63,7 @@ export function updateInternal(
       // Handle both return value updates and direct modifications
       Object.assign(updatedRow, result);
     } catch (error) {
-      console.error("Error updating row:", error);
+      handleError("updating row", error);
     }
 
     // Find the index of this row in the original data array
@@ -91,18 +93,14 @@ export function updateInternal(
     const originalRow = rows[rowIndex];
 
     headers.forEach((header, columnIndex) => {
-      let updatedValue = updatedRow[header];
-
-      // Convert Date objects to strings for comparison and storage
-      if (updatedValue instanceof Date) {
-        updatedValue = updatedValue.toLocaleString();
-      }
+      let updatedValue = normalizeValueForStorage(updatedRow[header]);
+      let originalValue = normalizeValueForStorage(originalRow[header]);
 
       // Skip if values are the same
-      if (originalRow[header] === updatedValue) return;
+      if (valuesEqual(originalValue, updatedValue)) return;
 
-      // Only update if we have a meaningful value or if the original was empty
-      // This prevents overwriting existing data with empty values
+      // Only update if we have a meaningful value OR if we explicitly want to clear a cell
+      // This prevents overwriting existing data with empty values unless intentional
       if (
         updatedValue !== undefined &&
         updatedValue !== null &&
@@ -115,9 +113,8 @@ export function updateInternal(
         // Store the change
         changedCells.set(cellRange, [[updatedValue]]);
       } else if (
-        originalRow[header] === "" ||
-        originalRow[header] === undefined ||
-        originalRow[header] === null
+        (originalValue === "" || originalValue === undefined || originalValue === null) &&
+        (updatedValue === "" || updatedValue === undefined || updatedValue === null)
       ) {
         // Only clear the cell if the original was already empty and we explicitly want to set it to empty
         const columnLetter = getColumnLetter(columnIndex);
@@ -130,20 +127,18 @@ export function updateInternal(
 
   // Only update if we have changes
   if (changedCells.size > 0) {
-    // Group adjacent cells in the same column for more efficient updates
-    const optimizedUpdates = optimizeRanges(changedCells);
-
-    // Create a batch update request
+    // Create individual cell updates instead of range optimization
+    // to prevent overwriting existing data in non-modified cells
     const batchUpdateRequest = {
       data: [],
       valueInputOption: "USER_ENTERED",
     };
 
-    // Add each range to the batch request
-    for (const [range, values] of Object.entries(optimizedUpdates)) {
+    // Add each individual cell update to the batch request
+    for (const [cellRange, value] of changedCells.entries()) {
       batchUpdateRequest.data.push({
-        range: range,
-        values: values,
+        range: cellRange,
+        values: value,
       });
     }
 
@@ -171,85 +166,4 @@ export function updateInternal(
     rows: resultRows as GQueryRow[],
     headers: headers,
   };
-}
-
-/**
- * Convert column index to column letter (0 -> A, 1 -> B, etc.)
- */
-function getColumnLetter(columnIndex: number): string {
-  let columnLetter = "";
-  let index = columnIndex;
-
-  while (index >= 0) {
-    columnLetter = String.fromCharCode(65 + (index % 26)) + columnLetter;
-    index = Math.floor(index / 26) - 1;
-  }
-
-  return columnLetter;
-}
-
-/**
- * Optimize update ranges by combining adjacent cells in the same column
- */
-function optimizeRanges(changedCells: Map<string, any[]>): {
-  [range: string]: any[][];
-} {
-  // Group cells by column
-  const columnGroups = new Map<string, Map<number, any>>();
-
-  for (const [cellRange, value] of changedCells.entries()) {
-    // Extract column letter and row number from A1 notation
-    const matches = cellRange.match(/([^!]+)!([A-Z]+)(\d+)$/);
-    if (!matches) continue;
-
-    const sheet = matches[1];
-    const columnLetter = matches[2];
-    const rowNumber = parseInt(matches[3]);
-    const columnKey = `${sheet}!${columnLetter}`;
-
-    if (!columnGroups.has(columnKey)) {
-      columnGroups.set(columnKey, new Map());
-    }
-
-    columnGroups.get(columnKey).set(rowNumber, value[0][0]);
-  }
-
-  // Create optimized ranges
-  const optimizedUpdates: { [range: string]: any[][] } = {};
-
-  for (const [columnKey, rowsMap] of columnGroups.entries()) {
-    // Sort row numbers
-    const rowNumbers = Array.from(rowsMap.keys()).sort((a, b) => a - b);
-
-    if (rowNumbers.length === 0) continue;
-
-    // Find min and max to create one range per column
-    const minRow = Math.min(...rowNumbers);
-    const maxRow = Math.max(...rowNumbers);
-
-    // Extract sheet name and column from columnKey
-    const sheet = columnKey.split("!")[0];
-    const column = columnKey.split("!")[1];
-
-    // Create a single range from min to max row
-    const rangeKey = `${sheet}!${column}${minRow}:${column}${maxRow}`;
-
-    // Create array of values with proper ordering
-    const values = [];
-    for (let row = minRow; row <= maxRow; row++) {
-      // Use the updated value if it exists, otherwise use empty string to preserve the existing value
-      let value = rowsMap.has(row) ? rowsMap.get(row) : "";
-
-      // Convert Date objects to strings
-      if (value instanceof Date) {
-        value = value.toLocaleString();
-      }
-
-      values.push([value]);
-    }
-
-    optimizedUpdates[rangeKey] = values;
-  }
-
-  return optimizedUpdates;
 }

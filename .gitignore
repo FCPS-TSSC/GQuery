@@ -136,3 +136,6 @@ out
 
 # rollup
 .rollup.cache/
+
+# Test files
+test-*.js
