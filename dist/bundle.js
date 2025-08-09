@@ -31,45 +31,40 @@ var DateTimeRenderOption;
     DateTimeRenderOption["SERIAL_NUMBER"] = "SERIAL_NUMBER";
 })(DateTimeRenderOption || (DateTimeRenderOption = {}));
 
+function parseRows(headers, values) {
+    return values.map((row, rowIndex) => {
+        const obj = {
+            __meta: {
+                rowNum: rowIndex + 2, // +2 because header row is 1
+                colLength: headers.length,
+            },
+        };
+        headers.forEach((header, i) => {
+            obj[header] = row[i] !== undefined ? row[i] : "";
+        });
+        return obj;
+    });
+}
+function fetchSheetData(spreadsheetId, sheetName) {
+    const response = callHandler(() => Sheets.Spreadsheets.Values.get(spreadsheetId, sheetName));
+    const values = response.values || [];
+    if (values.length === 0) {
+        return { headers: [], rows: [] };
+    }
+    const headers = values[0].map((h) => String(h));
+    const rows = parseRows(headers, values.slice(1));
+    return { headers, rows };
+}
+
 function getManyInternal(gquery, sheetNames, options) {
     if (!sheetNames || sheetNames.length === 0) {
         return {};
     }
-    // Set default options if not provided
     const valueRenderOption = (options === null || options === void 0 ? void 0 : options.valueRenderOption) || ValueRenderOption.FORMATTED_VALUE;
     const dateTimeRenderOption = (options === null || options === void 0 ? void 0 : options.dateTimeRenderOption) || DateTimeRenderOption.FORMATTED_STRING;
     const result = {};
-    const headersMap = {};
-    // Step 1: Get headers for each sheet (row 1)
-    for (const sheetName of sheetNames) {
-        try {
-            const headerResponse = callHandler(() => Sheets.Spreadsheets.Values.get(gquery.spreadsheetId, `${sheetName}!1:1`, {
-                valueRenderOption: valueRenderOption,
-                dateTimeRenderOption: dateTimeRenderOption,
-            }));
-            if (!headerResponse ||
-                !headerResponse.values ||
-                headerResponse.values.length === 0) {
-                // Handle empty sheet or sheet with no headers
-                result[sheetName] = { headers: [], rows: [] };
-                continue;
-            }
-            headersMap[sheetName] = headerResponse.values[0].map((header) => String(header));
-        }
-        catch (e) {
-            console.error(`Error fetching headers for sheet ${sheetName}:`, e);
-            result[sheetName] = { headers: [], rows: [] };
-        }
-    }
-    // Step 2: Get data for sheets that have headers
-    const sheetsToFetch = Object.keys(headersMap).filter((sheet) => headersMap[sheet].length > 0);
-    if (sheetsToFetch.length === 0) {
-        return result;
-    }
-    // Also fetch metadata for each sheet to determine data types
     let sheetMetadata = {};
     try {
-        // Get spreadsheet metadata including sheet tables if available
         const metadataResponse = callHandler(() => Sheets.Spreadsheets.get(gquery.spreadsheetId, {
             fields: "sheets(properties(title),tables.columnProperties)",
         }));
@@ -77,16 +72,14 @@ function getManyInternal(gquery, sheetNames, options) {
             metadataResponse.sheets.forEach((sheet) => {
                 var _a;
                 const sheetName = (_a = sheet.properties) === null || _a === void 0 ? void 0 : _a.title;
-                if (!sheetName || !sheetsToFetch.includes(sheetName))
+                if (!sheetName || !sheetNames.includes(sheetName))
                     return;
-                // @ts-expect-error: TypeScript may not recognize the tables property
+                // @ts-expect-error: tables may not be typed
                 if (sheet.tables && sheet.tables.length > 0) {
-                    // Use the first table definition for column properties
-                    // @ts-expect-error: TypeScript may not recognize the tables property
+                    // @ts-expect-error
                     const table = sheet.tables[0];
                     if (table.columnProperties) {
                         sheetMetadata[sheetName] = {};
-                        // For each column property, store its data type
                         Object.keys(table.columnProperties).forEach((column) => {
                             const dataType = table.columnProperties[column].dataType;
                             if (dataType) {
@@ -100,148 +93,71 @@ function getManyInternal(gquery, sheetNames, options) {
     }
     catch (e) {
         console.error("Error fetching metadata:", e);
-        // Continue without metadata - types won't be converted
     }
-    // Batch get data for all sheets (just use the sheet name as the range)
-    const dataRanges = sheetsToFetch.map((sheet) => `${sheet}`);
     const dataResponse = callHandler(() => Sheets.Spreadsheets.Values.batchGet(gquery.spreadsheetId, {
-        ranges: dataRanges,
-        valueRenderOption: valueRenderOption,
-        dateTimeRenderOption: dateTimeRenderOption,
+        ranges: sheetNames.map((s) => `${s}`),
+        valueRenderOption,
+        dateTimeRenderOption,
     }));
     if (!dataResponse || !dataResponse.valueRanges) {
-        // Return just the headers if we couldn't get any data
-        sheetsToFetch.forEach((sheet) => {
-            result[sheet] = {
-                headers: headersMap[sheet],
-                rows: [],
-            };
+        sheetNames.forEach((sheet) => {
+            result[sheet] = { headers: [], rows: [] };
         });
         return result;
     }
-    // Process each value range from the batch response
     dataResponse.valueRanges.forEach((valueRange, index) => {
-        const sheetName = sheetsToFetch[index];
-        const headers = headersMap[sheetName];
+        const sheetName = sheetNames[index];
         if (!valueRange.values || valueRange.values.length === 0) {
-            // Sheet exists but has no data rows
-            result[sheetName] = { headers, rows: [] };
+            result[sheetName] = { headers: [], rows: [] };
             return;
         }
-        const rows = [];
+        const headers = valueRange.values[0].map((h) => String(h));
+        let rows = parseRows(headers, valueRange.values.slice(1));
         const columnTypes = sheetMetadata[sheetName] || {};
-        // Process data rows
-        valueRange.values.forEach((rowData, rowIndex) => {
-            const row = {
-                __meta: {
-                    rowNum: rowIndex + 2, // +2 because we're starting from index 0 and row 1 is headers
-                    colLength: rowData.length,
-                },
-            };
-            // First initialize all header fields to empty strings
+        rows = rows.map((row) => {
+            const newRow = { __meta: row.__meta };
             headers.forEach((header) => {
-                row[header] = "";
-            });
-            // Map each column value to its corresponding header
-            for (let j = 0; j < Math.min(rowData.length, headers.length); j++) {
-                const header = headers[j];
-                let value = rowData[j];
-                if (value === null || value === undefined) {
-                    continue; // Skip processing but keep the empty string initialized earlier
-                }
-                // Apply type conversions based on metadata if available
-                if (columnTypes[header] && value !== "") {
-                    const dataType = columnTypes[header];
-                    if (dataType === "BOOLEAN") {
-                        // Convert to boolean
-                        if (typeof value === "string") {
-                            value = value.toLowerCase() === "true";
+                let value = row[header];
+                if (value !== undefined && value !== null && value !== "") {
+                    if (columnTypes[header]) {
+                        const dataType = columnTypes[header];
+                        if (dataType === "BOOLEAN") {
+                            if (typeof value === "string") {
+                                value = value.toLowerCase() === "true";
+                            }
                         }
-                    }
-                    else if (dataType === "DATE_TIME") {
-                        // Convert to Date object
-                        try {
+                        else if (dataType === "DATE_TIME") {
                             const dateValue = new Date(value);
                             if (!isNaN(dateValue.getTime())) {
                                 value = dateValue;
                             }
                         }
-                        catch (e) {
-                            // Keep original value if conversion fails
+                        else if (dataType === "NUMBER") {
+                            const numValue = Number(value);
+                            if (!isNaN(numValue)) {
+                                value = numValue;
+                            }
                         }
                     }
-                    else if (dataType === "NUMBER") {
-                        // Convert to number
-                        const numValue = Number(value);
-                        if (!isNaN(numValue)) {
-                            value = numValue;
-                        }
-                    }
-                }
-                else {
-                    // Try automatic type inference for common patterns
-                    if (typeof value === "string") {
-                        // Auto-detect booleans
+                    else if (typeof value === "string") {
                         if (value.toLowerCase() === "true" ||
                             value.toLowerCase() === "false") {
                             value = value.toLowerCase() === "true";
                         }
-                        // Auto-detect dates (simple pattern for dates like MM/DD/YYYY, etc.)
                         else if (/^\d{1,2}\/\d{1,2}\/\d{4}(\s\d{1,2}:\d{1,2}(:\d{1,2})?)?$/.test(value)) {
-                            try {
-                                const dateValue = new Date(value);
-                                if (!isNaN(dateValue.getTime())) {
-                                    value = dateValue;
-                                }
-                            }
-                            catch (e) {
-                                // Keep as string if conversion fails
+                            const dateValue = new Date(value);
+                            if (!isNaN(dateValue.getTime())) {
+                                value = dateValue;
                             }
                         }
                     }
                 }
-                row[header] = value;
-            }
-            rows.push(row);
+                newRow[header] = value;
+            });
+            return newRow;
         });
         result[sheetName] = { headers, rows };
     });
-    // Make sure all sheets in headersMap have an entry in result
-    sheetsToFetch.forEach((sheet) => {
-        if (!result[sheet]) {
-            result[sheet] = {
-                headers: headersMap[sheet],
-                rows: [],
-            };
-        }
-    });
-    // Convert data types based on metadata if available
-    if (Object.keys(sheetMetadata).length > 0) {
-        Object.keys(result).forEach((sheetName) => {
-            const sheetResult = result[sheetName];
-            const metadata = sheetMetadata[sheetName];
-            if (sheetResult && sheetResult.rows && metadata) {
-                sheetResult.rows = sheetResult.rows.map((row) => {
-                    const newRow = Object.assign({}, row);
-                    Object.keys(metadata).forEach((column) => {
-                        const dataType = metadata[column];
-                        // Convert based on data type
-                        if (dataType === "NUMBER") {
-                            newRow[column] = Number(row[column]);
-                        }
-                        else if (dataType === "BOOLEAN") {
-                            newRow[column] = row[column] === "TRUE";
-                        }
-                        else if (dataType === "DATE" || dataType === "DATETIME") {
-                            newRow[column] = new Date(row[column]);
-                        }
-                        // Add more conversions as needed
-                    });
-                    return newRow;
-                });
-            }
-        });
-    }
     return result;
 }
 function getInternal(gqueryTableFactory, options) {
@@ -443,144 +359,79 @@ function queryInternal(gqueryTable, query) {
 }
 
 function updateInternal(gQueryTableFactory, updateFn) {
-    // Get table configuration
     const spreadsheetId = gQueryTableFactory.gQueryTable.spreadsheetId;
     const sheetName = gQueryTableFactory.gQueryTable.sheetName;
     const range = sheetName;
-    // Fetch current data from the sheet
-    const response = callHandler(() => Sheets.Spreadsheets.Values.get(spreadsheetId, range));
-    const values = response.values || [];
-    if (values.length === 0) {
+    const { headers, rows } = fetchSheetData(spreadsheetId, range);
+    if (headers.length === 0) {
         return { rows: [], headers: [] };
     }
-    // Extract headers and rows
-    const headers = values[0];
-    const rows = values.slice(1).map((row) => {
-        const obj = {};
-        headers.forEach((header, i) => {
-            // Ensure all properties are initialized, even if empty
-            obj[header] = row[i] !== undefined ? row[i] : "";
-        });
-        return obj;
-    });
-    // Filter rows if where function is provided
-    let filteredRows = [];
-    if (gQueryTableFactory.filterOption) {
-        try {
-            filteredRows = rows.filter((row) => {
-                try {
-                    return gQueryTableFactory.filterOption(row);
-                }
-                catch (error) {
-                    console.error("Error filtering row:", error);
-                    return false;
-                }
-            });
-        }
-        catch (error) {
-            console.error("Error in filter function:", error);
-            return { rows: [], headers };
-        }
-    }
-    else {
-        filteredRows = rows;
-    }
-    // Update filtered rows
+    const filteredRows = gQueryTableFactory.filterOption
+        ? rows.filter((row) => {
+            try {
+                return gQueryTableFactory.filterOption(row);
+            }
+            catch (error) {
+                console.error("Error filtering row:", error);
+                return false;
+            }
+        })
+        : rows;
     const updatedRows = filteredRows.map((row) => {
-        // Apply the update function to get the updated row values
         const updatedRow = Object.assign({}, row);
         try {
-            const result = updateFn(updatedRow);
-            // Handle both return value updates and direct modifications
+            const result = updateFn(Object.assign({}, row));
             Object.assign(updatedRow, result);
         }
         catch (error) {
             console.error("Error updating row:", error);
         }
-        // Find the index of this row in the original data array
-        const rowIndex = rows.findIndex((origRow) => Object.keys(origRow).every((key) => origRow[key] === row[key]));
-        // Add __meta to each row with required properties
-        if (rowIndex !== -1) {
-            updatedRow.__meta = {
-                rowNum: rowIndex + 2, // +2 because we have headers at index 0 and row index is 0-based
-                colLength: headers.length,
-            };
-        }
         return updatedRow;
     });
-    // Track changes to optimize updates
     const changedCells = new Map();
-    // For each updated row, determine which cells changed
     updatedRows.forEach((updatedRow) => {
-        if (!updatedRow.__meta)
-            return;
         const rowIndex = updatedRow.__meta.rowNum - 2;
         const originalRow = rows[rowIndex];
         headers.forEach((header, columnIndex) => {
             let updatedValue = updatedRow[header];
-            // Convert Date objects to strings for comparison and storage
             if (updatedValue instanceof Date) {
                 updatedValue = updatedValue.toLocaleString();
             }
-            // Skip if values are the same
             if (originalRow[header] === updatedValue)
                 return;
-            // Only update if we have a meaningful value or if the original was empty
-            // This prevents overwriting existing data with empty values
             if (updatedValue !== undefined &&
                 updatedValue !== null &&
                 updatedValue !== "") {
-                // Use A1 notation for the column (A, B, C, etc.)
                 const columnLetter = getColumnLetter(columnIndex);
                 const cellRange = `${sheetName}!${columnLetter}${updatedRow.__meta.rowNum}`;
-                // Store the change
                 changedCells.set(cellRange, [[updatedValue]]);
             }
             else if (originalRow[header] === "" ||
                 originalRow[header] === undefined ||
                 originalRow[header] === null) {
-                // Only clear the cell if the original was already empty and we explicitly want to set it to empty
                 const columnLetter = getColumnLetter(columnIndex);
                 const cellRange = `${sheetName}!${columnLetter}${updatedRow.__meta.rowNum}`;
                 changedCells.set(cellRange, [[updatedValue || ""]]);
             }
-            // If updatedValue is empty but original had content, we skip the update to preserve existing data
         });
     });
-    // Only update if we have changes
     if (changedCells.size > 0) {
-        // Group adjacent cells in the same column for more efficient updates
         const optimizedUpdates = optimizeRanges(changedCells);
-        // Create a batch update request
         const batchUpdateRequest = {
             data: [],
             valueInputOption: "USER_ENTERED",
         };
-        // Add each range to the batch request
-        for (const [range, values] of Object.entries(optimizedUpdates)) {
+        for (const [rangeKey, values] of Object.entries(optimizedUpdates)) {
             batchUpdateRequest.data.push({
-                range: range,
-                values: values,
+                range: rangeKey,
+                values,
             });
         }
-        // Send a single batch update to Google Sheets
         callHandler(() => Sheets.Spreadsheets.Values.batchUpdate(batchUpdateRequest, spreadsheetId));
     }
-    // If updates were made, properly return the filtered and updated rows
-    // Make a fresh copy of the returned rows to ensure they have proper structure
-    const resultRows = filteredRows.length > 0
-        ? updatedRows.map((row) => {
-            const resultRow = { __meta: row.__meta };
-            headers.forEach((header) => {
-                resultRow[header] = row[header];
-            });
-            return resultRow;
-        })
-        : [];
-    // Return the updated rows
     return {
-        rows: resultRows,
-        headers: headers,
+        rows: filteredRows.length > 0 ? updatedRows : [],
+        headers,
     };
 }
 /**
@@ -599,49 +450,50 @@ function getColumnLetter(columnIndex) {
  * Optimize update ranges by combining adjacent cells in the same column
  */
 function optimizeRanges(changedCells) {
-    // Group cells by column
     const columnGroups = new Map();
     for (const [cellRange, value] of changedCells.entries()) {
-        // Extract column letter and row number from A1 notation
         const matches = cellRange.match(/([^!]+)!([A-Z]+)(\d+)$/);
         if (!matches)
             continue;
         const sheet = matches[1];
         const columnLetter = matches[2];
-        const rowNumber = parseInt(matches[3]);
+        const rowNumber = parseInt(matches[3], 10);
         const columnKey = `${sheet}!${columnLetter}`;
         if (!columnGroups.has(columnKey)) {
             columnGroups.set(columnKey, new Map());
         }
         columnGroups.get(columnKey).set(rowNumber, value[0][0]);
     }
-    // Create optimized ranges
     const optimizedUpdates = {};
     for (const [columnKey, rowsMap] of columnGroups.entries()) {
-        // Sort row numbers
         const rowNumbers = Array.from(rowsMap.keys()).sort((a, b) => a - b);
         if (rowNumbers.length === 0)
             continue;
-        // Find min and max to create one range per column
-        const minRow = Math.min(...rowNumbers);
-        const maxRow = Math.max(...rowNumbers);
-        // Extract sheet name and column from columnKey
         const sheet = columnKey.split("!")[0];
         const column = columnKey.split("!")[1];
-        // Create a single range from min to max row
-        const rangeKey = `${sheet}!${column}${minRow}:${column}${maxRow}`;
-        // Create array of values with proper ordering
-        const values = [];
-        for (let row = minRow; row <= maxRow; row++) {
-            // Use the updated value if it exists, otherwise use empty string to preserve the existing value
-            let value = rowsMap.has(row) ? rowsMap.get(row) : "";
-            // Convert Date objects to strings
-            if (value instanceof Date) {
-                value = value.toLocaleString();
+        let start = rowNumbers[0];
+        let groupValues = [[rowsMap.get(start)]];
+        for (let i = 1; i < rowNumbers.length; i++) {
+            const rowNum = rowNumbers[i];
+            const prev = rowNumbers[i - 1];
+            if (rowNum === prev + 1) {
+                groupValues.push([rowsMap.get(rowNum)]);
             }
-            values.push([value]);
+            else {
+                const end = prev;
+                const rangeKey = start === end
+                    ? `${sheet}!${column}${start}`
+                    : `${sheet}!${column}${start}:${column}${end}`;
+                optimizedUpdates[rangeKey] = groupValues;
+                start = rowNum;
+                groupValues = [[rowsMap.get(rowNum)]];
+            }
         }
-        optimizedUpdates[rangeKey] = values;
+        const last = rowNumbers[rowNumbers.length - 1];
+        const rangeKey = start === last
+            ? `${sheet}!${column}${start}`
+            : `${sheet}!${column}${start}:${column}${last}`;
+        optimizedUpdates[rangeKey] = groupValues;
     }
     return optimizedUpdates;
 }
@@ -722,28 +574,7 @@ function deleteInternal(gqueryTableFactory) {
     const sheetName = gqueryTableFactory.gQueryTable.sheetName;
     const sheet = gqueryTableFactory.gQueryTable.sheet;
     const sheetId = sheet.getSheetId();
-    // Fetch current data from the sheet
-    const response = callHandler(() => Sheets.Spreadsheets.Values.get(spreadsheetId, sheetName));
-    const values = response.values || [];
-    if (values.length <= 1) {
-        // Only header row or empty sheet
-        return { deletedRows: 0 };
-    }
-    // Extract headers and rows
-    const headers = values[0];
-    const rows = values.slice(1).map((row, rowIndex) => {
-        const obj = {
-            __meta: {
-                rowNum: rowIndex + 2, // +2 because we're starting from index 0 and row 1 is headers
-                colLength: row.length,
-            },
-        };
-        headers.forEach((header, i) => {
-            obj[header] = i < row.length ? row[i] : "";
-        });
-        return obj;
-    });
-    // If no filter option, nothing to delete
+    const { rows } = fetchSheetData(spreadsheetId, sheetName);
     if (!gqueryTableFactory.filterOption || rows.length === 0) {
         return { deletedRows: 0 };
     }

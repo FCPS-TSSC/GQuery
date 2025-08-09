@@ -1,5 +1,6 @@
 import { GQueryTableFactory } from "./index";
 import { callHandler } from "./ratelimit";
+import { fetchSheetData } from "./utils";
 
 export function deleteInternal(gqueryTableFactory: GQueryTableFactory): {
   deletedRows: number;
@@ -10,35 +11,8 @@ export function deleteInternal(gqueryTableFactory: GQueryTableFactory): {
   const sheet = gqueryTableFactory.gQueryTable.sheet;
   const sheetId = sheet.getSheetId();
 
-  // Fetch current data from the sheet
-  const response = callHandler(() =>
-    Sheets.Spreadsheets.Values.get(spreadsheetId, sheetName)
-  );
-  const values = response.values || [];
+  const { rows } = fetchSheetData(spreadsheetId, sheetName);
 
-  if (values.length <= 1) {
-    // Only header row or empty sheet
-    return { deletedRows: 0 };
-  }
-
-  // Extract headers and rows
-  const headers = values[0];
-  const rows: Record<string, any>[] = values.slice(1).map((row, rowIndex) => {
-    const obj: Record<string, any> = {
-      __meta: {
-        rowNum: rowIndex + 2, // +2 because we're starting from index 0 and row 1 is headers
-        colLength: row.length,
-      },
-    };
-
-    headers.forEach((header: string, i: number) => {
-      obj[header] = i < row.length ? row[i] : "";
-    });
-
-    return obj;
-  });
-
-  // If no filter option, nothing to delete
   if (!gqueryTableFactory.filterOption || rows.length === 0) {
     return { deletedRows: 0 };
   }
