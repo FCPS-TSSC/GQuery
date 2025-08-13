@@ -78,16 +78,9 @@ export function updateInternal(
     const optimizedUpdates = optimizeRanges(changedCells);
 
     const batchUpdateRequest = {
-      data: [] as { range: string; values: any[][] }[],
+      data: optimizedUpdates,
       valueInputOption: "USER_ENTERED",
     };
-
-    for (const [rangeKey, values] of Object.entries(optimizedUpdates)) {
-      batchUpdateRequest.data.push({
-        range: rangeKey,
-        values,
-      });
-    }
 
     callHandler(() =>
       Sheets.Spreadsheets.Values.batchUpdate(batchUpdateRequest, spreadsheetId)
@@ -117,10 +110,11 @@ function getColumnLetter(columnIndex: number): string {
 
 /**
  * Optimize update ranges by combining adjacent cells in the same column
+ * into contiguous row segments.
  */
-function optimizeRanges(changedCells: Map<string, any[]>): {
-  [range: string]: any[][];
-} {
+function optimizeRanges(
+  changedCells: Map<string, any[]>
+): { range: string; values: any[][] }[] {
   const columnGroups = new Map<string, Map<number, any>>();
 
   for (const [cellRange, value] of changedCells.entries()) {
@@ -138,14 +132,13 @@ function optimizeRanges(changedCells: Map<string, any[]>): {
     columnGroups.get(columnKey)!.set(rowNumber, value[0][0]);
   }
 
-  const optimizedUpdates: { [range: string]: any[][] } = {};
+  const optimizedUpdates: { range: string; values: any[][] }[] = [];
 
   for (const [columnKey, rowsMap] of columnGroups.entries()) {
     const rowNumbers = Array.from(rowsMap.keys()).sort((a, b) => a - b);
     if (rowNumbers.length === 0) continue;
 
-    const sheet = columnKey.split("!")[0];
-    const column = columnKey.split("!")[1];
+    const [sheet, column] = columnKey.split("!");
 
     let start = rowNumbers[0];
     let groupValues: any[][] = [[rowsMap.get(start)]];
@@ -161,7 +154,7 @@ function optimizeRanges(changedCells: Map<string, any[]>): {
           start === end
             ? `${sheet}!${column}${start}`
             : `${sheet}!${column}${start}:${column}${end}`;
-        optimizedUpdates[rangeKey] = groupValues;
+        optimizedUpdates.push({ range: rangeKey, values: groupValues });
         start = rowNum;
         groupValues = [[rowsMap.get(rowNum)]];
       }
@@ -172,7 +165,7 @@ function optimizeRanges(changedCells: Map<string, any[]>): {
       start === last
         ? `${sheet}!${column}${start}`
         : `${sheet}!${column}${start}:${column}${last}`;
-    optimizedUpdates[rangeKey] = groupValues;
+    optimizedUpdates.push({ range: rangeKey, values: groupValues });
   }
 
   return optimizedUpdates;
