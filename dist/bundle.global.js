@@ -383,8 +383,12 @@ var GQuery = (function (exports) {
         const updatedRows = filteredRows.map((row) => {
             const updatedRow = Object.assign({}, row);
             try {
-                const result = updateFn(Object.assign({}, row));
-                Object.assign(updatedRow, result);
+                // Allow the updateFn to mutate the provided row object directly or
+                // return a partial set of properties to merge.
+                const result = updateFn(updatedRow);
+                if (result && typeof result === "object") {
+                    Object.assign(updatedRow, result);
+                }
             }
             catch (error) {
                 console.error("Error updating row:", error);
@@ -421,15 +425,9 @@ var GQuery = (function (exports) {
         if (changedCells.size > 0) {
             const optimizedUpdates = optimizeRanges(changedCells);
             const batchUpdateRequest = {
-                data: [],
+                data: optimizedUpdates,
                 valueInputOption: "USER_ENTERED",
             };
-            for (const [rangeKey, values] of Object.entries(optimizedUpdates)) {
-                batchUpdateRequest.data.push({
-                    range: rangeKey,
-                    values,
-                });
-            }
             callHandler(() => Sheets.Spreadsheets.Values.batchUpdate(batchUpdateRequest, spreadsheetId));
         }
         return {
@@ -451,6 +449,7 @@ var GQuery = (function (exports) {
     }
     /**
      * Optimize update ranges by combining adjacent cells in the same column
+     * into contiguous row segments.
      */
     function optimizeRanges(changedCells) {
         const columnGroups = new Map();
@@ -467,13 +466,12 @@ var GQuery = (function (exports) {
             }
             columnGroups.get(columnKey).set(rowNumber, value[0][0]);
         }
-        const optimizedUpdates = {};
+        const optimizedUpdates = [];
         for (const [columnKey, rowsMap] of columnGroups.entries()) {
             const rowNumbers = Array.from(rowsMap.keys()).sort((a, b) => a - b);
             if (rowNumbers.length === 0)
                 continue;
-            const sheet = columnKey.split("!")[0];
-            const column = columnKey.split("!")[1];
+            const [sheet, column] = columnKey.split("!");
             let start = rowNumbers[0];
             let groupValues = [[rowsMap.get(start)]];
             for (let i = 1; i < rowNumbers.length; i++) {
@@ -487,7 +485,7 @@ var GQuery = (function (exports) {
                     const rangeKey = start === end
                         ? `${sheet}!${column}${start}`
                         : `${sheet}!${column}${start}:${column}${end}`;
-                    optimizedUpdates[rangeKey] = groupValues;
+                    optimizedUpdates.push({ range: rangeKey, values: groupValues });
                     start = rowNum;
                     groupValues = [[rowsMap.get(rowNum)]];
                 }
@@ -496,7 +494,7 @@ var GQuery = (function (exports) {
             const rangeKey = start === last
                 ? `${sheet}!${column}${start}`
                 : `${sheet}!${column}${start}:${column}${last}`;
-            optimizedUpdates[rangeKey] = groupValues;
+            optimizedUpdates.push({ range: rangeKey, values: groupValues });
         }
         return optimizedUpdates;
     }
