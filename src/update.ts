@@ -31,8 +31,12 @@ export function updateInternal(
   const updatedRows: GQueryRow[] = filteredRows.map((row) => {
     const updatedRow: GQueryRow = { ...row };
     try {
-      const result = updateFn({ ...row });
-      Object.assign(updatedRow, result);
+      // Allow the updateFn to mutate the provided row object directly or
+      // return a partial set of properties to merge.
+      const result = updateFn(updatedRow);
+      if (result && typeof result === "object") {
+        Object.assign(updatedRow, result);
+      }
     } catch (error) {
       console.error("Error updating row:", error);
     }
