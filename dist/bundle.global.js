@@ -406,15 +406,12 @@ var GQuery = (function (exports) {
                 }
                 if (originalRow[header] === updatedValue)
                     return;
-                if (updatedValue !== undefined &&
-                    updatedValue !== null &&
-                    updatedValue !== "") {
+                if (updatedValue !== undefined && updatedValue !== null) {
                     const columnLetter = getColumnLetter(columnIndex);
                     const cellRange = `${sheetName}!${columnLetter}${updatedRow.__meta.rowNum}`;
                     changedCells.set(cellRange, [[updatedValue]]);
                 }
-                else if (originalRow[header] === "" ||
-                    originalRow[header] === undefined ||
+                else if (originalRow[header] === undefined ||
                     originalRow[header] === null) {
                     const columnLetter = getColumnLetter(columnIndex);
                     const cellRange = `${sheetName}!${columnLetter}${updatedRow.__meta.rowNum}`;
