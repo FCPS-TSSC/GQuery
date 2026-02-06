@@ -74,6 +74,16 @@ export function appendInternal(
   }
 
   const startRow = parseInt(rangeMatch[3], 10);
+  const endRow = parseInt(rangeMatch[5], 10);
+  
+  // Validate that all rows were appended
+  const expectedRowCount = data.length;
+  const actualRowCount = endRow - startRow + 1;
+  if (actualRowCount !== expectedRowCount) {
+    console.warn(
+      `Expected to append ${expectedRowCount} rows but ${actualRowCount} were appended`
+    );
+  }
 
   // Create result rows with metadata
   const resultRows: GQueryRow[] = rowsToAppend.map((row, index) => {
