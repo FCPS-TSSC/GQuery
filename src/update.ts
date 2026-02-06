@@ -17,6 +17,7 @@ export function updateInternal(
     return { rows: [], headers: [] };
   }
 
+  // Filter rows if filter is specified
   const filteredRows = gQueryTableFactory.filterOption
     ? rows.filter((row) => {
         try {
@@ -28,11 +29,10 @@ export function updateInternal(
       })
     : rows;
 
+  // Apply updates to filtered rows
   const updatedRows: GQueryRow[] = filteredRows.map((row) => {
     const updatedRow: GQueryRow = { ...row };
     try {
-      // Allow the updateFn to mutate the provided row object directly or
-      // return a partial set of properties to merge.
       const result = updateFn(updatedRow);
       if (result && typeof result === "object") {
         Object.assign(updatedRow, result);
@@ -43,6 +43,7 @@ export function updateInternal(
     return updatedRow;
   });
 
+  // Collect changed cells
   const changedCells = new Map<string, any[]>();
 
   updatedRows.forEach((updatedRow) => {
@@ -51,21 +52,22 @@ export function updateInternal(
 
     headers.forEach((header, columnIndex) => {
       let updatedValue = updatedRow[header];
+      const originalValue = originalRow[header];
 
+      // Convert dates to locale string for comparison
       if (updatedValue instanceof Date) {
         updatedValue = updatedValue.toLocaleString();
       }
 
-      if (originalRow[header] === updatedValue) return;
+      // Skip if values are the same
+      if (originalValue === updatedValue) return;
 
+      // Only update if value changed or is being set/cleared
       if (updatedValue !== undefined && updatedValue !== null) {
         const columnLetter = getColumnLetter(columnIndex);
         const cellRange = `${sheetName}!${columnLetter}${updatedRow.__meta.rowNum}`;
         changedCells.set(cellRange, [[updatedValue]]);
-      } else if (
-        originalRow[header] === undefined ||
-        originalRow[header] === null
-      ) {
+      } else if (originalValue !== undefined && originalValue !== null) {
         const columnLetter = getColumnLetter(columnIndex);
         const cellRange = `${sheetName}!${columnLetter}${updatedRow.__meta.rowNum}`;
         changedCells.set(cellRange, [[updatedValue || ""]]);
@@ -73,6 +75,7 @@ export function updateInternal(
     });
   });
 
+  // Perform batch update if there are changes
   if (changedCells.size > 0) {
     const optimizedUpdates = optimizeRanges(changedCells);
 

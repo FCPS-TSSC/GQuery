@@ -1,6 +1,13 @@
 var GQuery = (function (exports) {
     'use strict';
 
+    /**
+     * Exponential backoff handler for Google Sheets API calls
+     * Handles rate limiting (429) and quota exceeded errors
+     * @param fn Function to execute with retry logic
+     * @param retries Maximum number of retry attempts (default: 16)
+     * @returns Result of the function execution
+     */
     function callHandler(fn, retries = 16) {
         let attempt = 0;
         while (attempt < retries) {
@@ -8,37 +15,66 @@ var GQuery = (function (exports) {
                 return fn();
             }
             catch (error) {
-                if (error.message.includes("429") ||
-                    error.message.includes("Quota exceeded for quota metric")) {
+                const errorMessage = (error === null || error === void 0 ? void 0 : error.message) || String(error);
+                // Check if it's a rate limit or quota error
+                const isRateLimitError = errorMessage.includes("429") ||
+                    errorMessage.includes("Quota exceeded") ||
+                    errorMessage.includes("Rate Limit Exceeded");
+                if (isRateLimitError) {
                     attempt++;
-                    const backoffDelay = Math.min(Math.pow(2, attempt) + Math.random() * 1000, 64000);
+                    if (attempt >= retries) {
+                        throw new Error(`Max retries (${retries}) reached for Google Sheets API call. Last error: ${errorMessage}`);
+                    }
+                    // Exponential backoff with jitter, capped at 64 seconds
+                    const backoffDelay = Math.min(Math.pow(2, attempt) * 1000 + Math.random() * 1000, 64000);
+                    console.log(`Rate limit hit, retrying in ${Math.round(backoffDelay)}ms (attempt ${attempt}/${retries})`);
                     Utilities.sleep(backoffDelay);
                 }
                 else {
-                    throw error; // Rethrow if it's not a rate limit error
+                    // Not a rate limit error, rethrow immediately
+                    throw error;
                 }
             }
         }
-        throw new Error("Max retries reached for Google Sheets API call.");
+        throw new Error("Unexpected state: Max retries reached without throwing error");
     }
 
+    /**
+     * How values should be rendered in the output
+     * @see https://developers.google.com/sheets/api/reference/rest/v4/ValueRenderOption
+     */
     exports.ValueRenderOption = void 0;
     (function (ValueRenderOption) {
+        /** Values will be calculated and formatted according to cell formatting */
         ValueRenderOption["FORMATTED_VALUE"] = "FORMATTED_VALUE";
+        /** Values will be calculated but not formatted */
         ValueRenderOption["UNFORMATTED_VALUE"] = "UNFORMATTED_VALUE";
+        /** Values will not be calculated; formulas will be returned as-is */
         ValueRenderOption["FORMULA"] = "FORMULA";
     })(exports.ValueRenderOption || (exports.ValueRenderOption = {}));
+    /**
+     * How dates and times should be rendered in the output
+     * @see https://developers.google.com/sheets/api/reference/rest/v4/DateTimeRenderOption
+     */
     exports.DateTimeRenderOption = void 0;
     (function (DateTimeRenderOption) {
+        /** Dates and times will be rendered as strings according to cell formatting */
         DateTimeRenderOption["FORMATTED_STRING"] = "FORMATTED_STRING";
+        /** Dates and times will be rendered as serial numbers */
         DateTimeRenderOption["SERIAL_NUMBER"] = "SERIAL_NUMBER";
     })(exports.DateTimeRenderOption || (exports.DateTimeRenderOption = {}));
 
+    /**
+     * Parse raw sheet values into GQueryRow objects with metadata
+     * @param headers Column headers from the sheet
+     * @param values Raw values from the sheet (without header row)
+     * @returns Array of GQueryRow objects
+     */
     function parseRows(headers, values) {
         return values.map((row, rowIndex) => {
             const obj = {
                 __meta: {
-                    rowNum: rowIndex + 2, // +2 because header row is 1
+                    rowNum: rowIndex + 2, // +2 because header is row 1, data starts at row 2
                     colLength: headers.length,
                 },
             };
@@ -48,6 +84,12 @@ var GQuery = (function (exports) {
             return obj;
         });
     }
+    /**
+     * Fetch all data from a sheet including headers
+     * @param spreadsheetId The ID of the spreadsheet
+     * @param sheetName The name of the sheet to fetch
+     * @returns Object containing headers and rows
+     */
     function fetchSheetData(spreadsheetId, sheetName) {
         const response = callHandler(() => Sheets.Spreadsheets.Values.get(spreadsheetId, sheetName));
         const values = response.values || [];
@@ -59,6 +101,41 @@ var GQuery = (function (exports) {
         return { headers, rows };
     }
 
+    /**
+     * Convert row values to appropriate types (boolean, date, number)
+     * Optimized to reduce redundant type checking
+     */
+    function convertRowTypes(row, headers) {
+        const newRow = { __meta: row.__meta };
+        headers.forEach((header) => {
+            let value = row[header];
+            // Skip empty values
+            if (value === undefined || value === null || value === "") {
+                newRow[header] = value;
+                return;
+            }
+            // Only process string values for type conversion
+            if (typeof value === "string") {
+                const lowerValue = value.toLowerCase();
+                // Check for boolean
+                if (lowerValue === "true" || lowerValue === "false") {
+                    newRow[header] = lowerValue === "true";
+                    return;
+                }
+                // Check for date pattern (MM/DD/YYYY or MM/DD/YYYY HH:MM:SS)
+                if (/^\d{1,2}\/\d{1,2}\/\d{4}(\s\d{1,2}:\d{1,2}(:\d{1,2})?)?$/.test(value)) {
+                    const dateValue = new Date(value);
+                    if (!isNaN(dateValue.getTime())) {
+                        newRow[header] = dateValue;
+                        return;
+                    }
+                }
+            }
+            // Keep original value if no conversion applied
+            newRow[header] = value;
+        });
+        return newRow;
+    }
     function getManyInternal(gquery, sheetNames, options) {
         if (!sheetNames || sheetNames.length === 0) {
             return {};
@@ -66,39 +143,9 @@ var GQuery = (function (exports) {
         const valueRenderOption = (options === null || options === void 0 ? void 0 : options.valueRenderOption) || exports.ValueRenderOption.FORMATTED_VALUE;
         const dateTimeRenderOption = (options === null || options === void 0 ? void 0 : options.dateTimeRenderOption) || exports.DateTimeRenderOption.FORMATTED_STRING;
         const result = {};
-        let sheetMetadata = {};
-        try {
-            const metadataResponse = callHandler(() => Sheets.Spreadsheets.get(gquery.spreadsheetId, {
-                fields: "sheets(properties(title),tables.columnProperties)",
-            }));
-            if (metadataResponse && metadataResponse.sheets) {
-                metadataResponse.sheets.forEach((sheet) => {
-                    var _a;
-                    const sheetName = (_a = sheet.properties) === null || _a === void 0 ? void 0 : _a.title;
-                    if (!sheetName || !sheetNames.includes(sheetName))
-                        return;
-                    // @ts-expect-error: tables may not be typed
-                    if (sheet.tables && sheet.tables.length > 0) {
-                        // @ts-expect-error
-                        const table = sheet.tables[0];
-                        if (table.columnProperties) {
-                            sheetMetadata[sheetName] = {};
-                            Object.keys(table.columnProperties).forEach((column) => {
-                                const dataType = table.columnProperties[column].dataType;
-                                if (dataType) {
-                                    sheetMetadata[sheetName][column] = dataType;
-                                }
-                            });
-                        }
-                    }
-                });
-            }
-        }
-        catch (e) {
-            console.error("Error fetching metadata:", e);
-        }
+        // Fetch data using batchGet for better performance
         const dataResponse = callHandler(() => Sheets.Spreadsheets.Values.batchGet(gquery.spreadsheetId, {
-            ranges: sheetNames.map((s) => `${s}`),
+            ranges: sheetNames,
             valueRenderOption,
             dateTimeRenderOption,
         }));
@@ -116,49 +163,8 @@ var GQuery = (function (exports) {
             }
             const headers = valueRange.values[0].map((h) => String(h));
             let rows = parseRows(headers, valueRange.values.slice(1));
-            const columnTypes = sheetMetadata[sheetName] || {};
-            rows = rows.map((row) => {
-                const newRow = { __meta: row.__meta };
-                headers.forEach((header) => {
-                    let value = row[header];
-                    if (value !== undefined && value !== null && value !== "") {
-                        if (columnTypes[header]) {
-                            const dataType = columnTypes[header];
-                            if (dataType === "BOOLEAN") {
-                                if (typeof value === "string") {
-                                    value = value.toLowerCase() === "true";
-                                }
-                            }
-                            else if (dataType === "DATE_TIME") {
-                                const dateValue = new Date(value);
-                                if (!isNaN(dateValue.getTime())) {
-                                    value = dateValue;
-                                }
-                            }
-                            else if (dataType === "NUMBER") {
-                                const numValue = Number(value);
-                                if (!isNaN(numValue)) {
-                                    value = numValue;
-                                }
-                            }
-                        }
-                        else if (typeof value === "string") {
-                            if (value.toLowerCase() === "true" ||
-                                value.toLowerCase() === "false") {
-                                value = value.toLowerCase() === "true";
-                            }
-                            else if (/^\d{1,2}\/\d{1,2}\/\d{4}(\s\d{1,2}:\d{1,2}(:\d{1,2})?)?$/.test(value)) {
-                                const dateValue = new Date(value);
-                                if (!isNaN(dateValue.getTime())) {
-                                    value = dateValue;
-                                }
-                            }
-                        }
-                    }
-                    newRow[header] = value;
-                });
-                return newRow;
-            });
+            // Apply type conversion to rows
+            rows = rows.map((row) => convertRowTypes(row, headers));
             result[sheetName] = { headers, rows };
         });
         return result;
@@ -293,71 +299,69 @@ var GQuery = (function (exports) {
         };
     }
     function queryInternal(gqueryTable, query) {
-        var sheet = gqueryTable.sheet;
-        var range = sheet.getDataRange();
-        var replaced = query;
-        for (var i = 0; i < range.getLastColumn() - 1; i++) {
-            var rng = sheet.getRange(1, i + 1);
-            var name = rng.getValue();
-            var letter = rng.getA1Notation().match(/([A-Z]+)/)[0];
-            replaced = replaced.replaceAll(name, letter);
+        var _a;
+        const sheet = gqueryTable.sheet;
+        const range = sheet.getDataRange();
+        // Build column name to letter mapping
+        let replaced = query;
+        const lastColumn = range.getLastColumn();
+        for (let i = 0; i < lastColumn; i++) {
+            const rng = sheet.getRange(1, i + 1);
+            const name = rng.getValue();
+            const letter = (_a = rng.getA1Notation().match(/([A-Z]+)/)) === null || _a === void 0 ? void 0 : _a[0];
+            if (letter && name) {
+                replaced = replaced.replaceAll(name, letter);
+            }
         }
-        var response = UrlFetchApp.fetch(Utilities.formatString("https://docs.google.com/spreadsheets/d/%s/gviz/tq?tq=%s%s%s%s", sheet.getParent().getId(), encodeURIComponent(replaced), "&sheet=" + sheet.getName(), typeof range === "string" ? "&range=" + range : "", "&headers=1"), {
+        // Build query URL
+        const url = Utilities.formatString("https://docs.google.com/spreadsheets/d/%s/gviz/tq?tq=%s&sheet=%s%s&headers=1", sheet.getParent().getId(), encodeURIComponent(replaced), sheet.getName(), typeof range === "string" ? "&range=" + range : "");
+        // Fetch with authorization
+        const response = UrlFetchApp.fetch(url, {
             headers: {
                 Authorization: "Bearer " + ScriptApp.getOAuthToken(),
             },
         });
-        var jsonResponse = JSON.parse(response
+        // Parse response
+        const jsonResponse = JSON.parse(response
             .getContentText()
             .replace("/*O_o*/\n", "")
-            .replace(/(google\.visualization\.Query\.setResponse\()|(\);)/gm, "")), table = jsonResponse.table;
+            .replace(/(google\.visualization\.Query\.setResponse\()|(\);)/gm, ""));
+        const table = jsonResponse.table;
         // Extract column headers
         const headers = table.cols.map((col) => col.label);
         // Map rows to proper GQueryRow format
-        const rows = table.rows.map((row, _rowIndex) => {
+        const rows = table.rows.map((row) => {
             const rowObj = {
                 __meta: {
-                    rowNum: -1, // +2 because we're starting from index 0 and row 1 is headers
+                    rowNum: -1, // Query results don't have reliable row numbers
                     colLength: row.c.length,
                 },
             };
-            // Initialize all header fields to empty strings
-            headers.forEach((header) => {
-                rowObj[header] = "";
-            });
             // Populate row data
             table.cols.forEach((col, colIndex) => {
                 const cellData = row.c[colIndex];
+                let value = "";
                 if (cellData) {
                     // Use formatted value if available, otherwise use raw value
-                    let value = cellData.f !== null && cellData.f !== undefined
+                    value = cellData.f !== null && cellData.f !== undefined
                         ? cellData.f
                         : cellData.v;
-                    // Convert known data types
-                    if (value instanceof Date) ;
-                    else if (typeof value === "string") {
-                        // Try to auto-detect date strings
-                        if (/^\d{1,2}\/\d{1,2}\/\d{4}(\s\d{1,2}:\d{1,2}(:\d{1,2})?)?$/.test(value)) {
-                            try {
-                                const dateValue = new Date(value);
-                                if (!isNaN(dateValue.getTime())) {
-                                    value = dateValue;
-                                }
-                            }
-                            catch (e) {
-                                // Keep as string if conversion fails
-                            }
+                    // Convert date strings if needed
+                    if (typeof value === "string" &&
+                        /^\d{1,2}\/\d{1,2}\/\d{4}(\s\d{1,2}:\d{1,2}(:\d{1,2})?)?$/.test(value)) {
+                        const dateValue = new Date(value);
+                        if (!isNaN(dateValue.getTime())) {
+                            value = dateValue;
                         }
                     }
-                    rowObj[col.label] = value;
                 }
+                rowObj[col.label] = value;
             });
             return rowObj;
         });
-        // Return in the standard GQueryResult format
         return {
-            headers: headers,
-            rows: rows,
+            headers,
+            rows,
         };
     }
 
@@ -369,6 +373,7 @@ var GQuery = (function (exports) {
         if (headers.length === 0) {
             return { rows: [], headers: [] };
         }
+        // Filter rows if filter is specified
         const filteredRows = gQueryTableFactory.filterOption
             ? rows.filter((row) => {
                 try {
@@ -380,11 +385,10 @@ var GQuery = (function (exports) {
                 }
             })
             : rows;
+        // Apply updates to filtered rows
         const updatedRows = filteredRows.map((row) => {
             const updatedRow = Object.assign({}, row);
             try {
-                // Allow the updateFn to mutate the provided row object directly or
-                // return a partial set of properties to merge.
                 const result = updateFn(updatedRow);
                 if (result && typeof result === "object") {
                     Object.assign(updatedRow, result);
@@ -395,30 +399,35 @@ var GQuery = (function (exports) {
             }
             return updatedRow;
         });
+        // Collect changed cells
         const changedCells = new Map();
         updatedRows.forEach((updatedRow) => {
             const rowIndex = updatedRow.__meta.rowNum - 2;
             const originalRow = rows[rowIndex];
             headers.forEach((header, columnIndex) => {
                 let updatedValue = updatedRow[header];
+                const originalValue = originalRow[header];
+                // Convert dates to locale string for comparison
                 if (updatedValue instanceof Date) {
                     updatedValue = updatedValue.toLocaleString();
                 }
-                if (originalRow[header] === updatedValue)
+                // Skip if values are the same
+                if (originalValue === updatedValue)
                     return;
+                // Only update if value changed or is being set/cleared
                 if (updatedValue !== undefined && updatedValue !== null) {
                     const columnLetter = getColumnLetter(columnIndex);
                     const cellRange = `${sheetName}!${columnLetter}${updatedRow.__meta.rowNum}`;
                     changedCells.set(cellRange, [[updatedValue]]);
                 }
-                else if (originalRow[header] === undefined ||
-                    originalRow[header] === null) {
+                else if (originalValue !== undefined && originalValue !== null) {
                     const columnLetter = getColumnLetter(columnIndex);
                     const cellRange = `${sheetName}!${columnLetter}${updatedRow.__meta.rowNum}`;
                     changedCells.set(cellRange, [[updatedValue || ""]]);
                 }
             });
         });
+        // Perform batch update if there are changes
         if (changedCells.size > 0) {
             const optimizedUpdates = optimizeRanges(changedCells);
             const batchUpdateRequest = {
@@ -497,55 +506,58 @@ var GQuery = (function (exports) {
     }
 
     function appendInternal(table, data) {
-        // If no data is provided or empty array, return empty result
+        // Validate input data
         if (!data || data.length === 0) {
             return { rows: [], headers: [] };
         }
-        // Extract spreadsheet information
         const spreadsheetId = table.spreadsheetId;
         const sheetName = table.sheetName;
-        // First, get the current headers from the sheet
+        // Fetch headers from the first row
         const response = callHandler(() => Sheets.Spreadsheets.Values.get(spreadsheetId, `${sheetName}!1:1`));
-        // If sheet is empty or doesn't exist, cannot append
+        // Validate sheet exists and has headers
         if (!response || !response.values || response.values.length === 0) {
             throw new Error(`Sheet "${sheetName}" not found or has no headers`);
         }
         const headers = response.values[0].map((header) => String(header));
-        // Format data to be appended according to the sheet's headers
+        // Map data to rows according to header order
         const rowsToAppend = data.map((item) => {
-            // For each header, get corresponding value from item or empty string
             return headers.map((header) => {
                 let value = item[header];
-                // Convert Date objects to strings
+                // Convert Date objects to locale strings
                 if (value instanceof Date) {
                     value = value.toLocaleString();
                 }
                 return value !== undefined ? value : "";
             });
         });
-        // Use Sheets API to append the data
-        const appendResponse = callHandler(() => Sheets.Spreadsheets.Values.append({ values: rowsToAppend }, spreadsheetId, `${sheetName}`, {
+        // Append data using Sheets API
+        const appendResponse = callHandler(() => Sheets.Spreadsheets.Values.append({ values: rowsToAppend }, spreadsheetId, sheetName, {
             valueInputOption: "USER_ENTERED",
             insertDataOption: "OVERWRITE",
             responseValueRenderOption: "FORMATTED_VALUE",
             responseDateTimeRenderOption: "FORMATTED_STRING",
             includeValuesInResponse: true,
         }));
-        // Check if append was successful
+        // Validate append was successful
         if (!appendResponse ||
             !appendResponse.updates ||
             !appendResponse.updates.updatedRange) {
             throw new Error("Failed to append data to sheet");
         }
-        // Extract information about the appended rows
+        // Parse the updated range to get row numbers
         const updatedRange = appendResponse.updates.updatedRange;
         const rangeMatch = updatedRange.match(/([^!]+)!([A-Z]+)(\d+):([A-Z]+)(\d+)/);
         if (!rangeMatch) {
             throw new Error(`Could not parse updated range: ${updatedRange}`);
         }
-        // Get start and end row numbers from the updated range
-        const startRow = parseInt(rangeMatch[3]);
-        parseInt(rangeMatch[5]);
+        const startRow = parseInt(rangeMatch[3], 10);
+        const endRow = parseInt(rangeMatch[5], 10);
+        // Validate that all rows were appended
+        const expectedRowCount = data.length;
+        const actualRowCount = endRow - startRow + 1;
+        if (actualRowCount !== expectedRowCount) {
+            console.warn(`Expected to append ${expectedRowCount} rows but ${actualRowCount} were appended`);
+        }
         // Create result rows with metadata
         const resultRows = rowsToAppend.map((row, index) => {
             const rowObj = {
@@ -554,7 +566,7 @@ var GQuery = (function (exports) {
                     colLength: headers.length,
                 },
             };
-            // Add data according to headers
+            // Map values to header names
             headers.forEach((header, colIndex) => {
                 rowObj[header] = row[colIndex];
             });
@@ -562,21 +574,21 @@ var GQuery = (function (exports) {
         });
         return {
             rows: resultRows,
-            headers: headers,
+            headers,
         };
     }
 
     function deleteInternal(gqueryTableFactory) {
-        // Get table configuration
         const spreadsheetId = gqueryTableFactory.gQueryTable.spreadsheetId;
         const sheetName = gqueryTableFactory.gQueryTable.sheetName;
         const sheet = gqueryTableFactory.gQueryTable.sheet;
         const sheetId = sheet.getSheetId();
         const { rows } = fetchSheetData(spreadsheetId, sheetName);
+        // Check if filter is specified and rows exist
         if (!gqueryTableFactory.filterOption || rows.length === 0) {
             return { deletedRows: 0 };
         }
-        // Find rows matching the filter condition (these will be deleted)
+        // Find rows matching the filter condition
         const rowsToDelete = rows.filter((row) => {
             try {
                 return gqueryTableFactory.filterOption(row);
@@ -589,47 +601,67 @@ var GQuery = (function (exports) {
         if (rowsToDelete.length === 0) {
             return { deletedRows: 0 };
         }
-        // Sort rowsToDelete by row number in descending order to avoid shifting issues
+        // Sort in descending order to avoid row number shifting issues
         rowsToDelete.sort((a, b) => b.__meta.rowNum - a.__meta.rowNum);
-        // Create an array of row indices to delete
-        const rowIndicesToDelete = rowsToDelete.map((row) => row.__meta.rowNum);
-        // Create batch update request for deleting the rows
+        // Build batch delete request
         const batchUpdateRequest = {
-            requests: rowIndicesToDelete.map((rowIndex) => ({
+            requests: rowsToDelete.map((row) => ({
                 deleteDimension: {
                     range: {
-                        sheetId: sheetId,
+                        sheetId,
                         dimension: "ROWS",
-                        startIndex: rowIndex - 1, // Convert to 0-based index
-                        endIndex: rowIndex, // Range is end-exclusive
+                        startIndex: row.__meta.rowNum - 1, // Convert to 0-based index
+                        endIndex: row.__meta.rowNum, // End-exclusive range
                     },
                 },
             })),
         };
-        // Execute the batch update
+        // Execute batch delete
         try {
             callHandler(() => Sheets.Spreadsheets.batchUpdate(batchUpdateRequest, spreadsheetId));
+            return { deletedRows: rowsToDelete.length };
         }
         catch (error) {
             console.error("Error deleting rows:", error);
-            return { deletedRows: 0 };
+            throw new Error(`Failed to delete rows: ${error}`);
         }
-        return { deletedRows: rowsToDelete.length };
     }
 
+    /**
+     * Main GQuery class for interacting with Google Sheets
+     * Provides a query-like interface for reading and writing spreadsheet data
+     */
     class GQuery {
+        /**
+         * Create a new GQuery instance
+         * @param spreadsheetId Optional spreadsheet ID. If not provided, uses the active spreadsheet
+         */
         constructor(spreadsheetId) {
             this.spreadsheetId = spreadsheetId
                 ? spreadsheetId
                 : SpreadsheetApp.getActiveSpreadsheet().getId();
         }
+        /**
+         * Get a table reference for a specific sheet
+         * @param sheetName Name of the sheet
+         * @returns GQueryTable instance for chaining operations
+         */
         from(sheetName) {
             return new GQueryTable(this, this.spreadsheetId, sheetName);
         }
+        /**
+         * Efficiently fetch data from multiple sheets at once
+         * @param sheetNames Array of sheet names to fetch
+         * @param options Optional rendering options
+         * @returns Object mapping sheet names to their data
+         */
         getMany(sheetNames, options) {
             return getManyInternal(this, sheetNames, options);
         }
     }
+    /**
+     * Represents a single sheet table for query operations
+     */
     class GQueryTable {
         constructor(gquery, spreadsheetId, sheetName) {
             this.spreadsheetId = spreadsheetId;
@@ -638,33 +670,77 @@ var GQuery = (function (exports) {
             this.sheet = this.spreadsheet.getSheetByName(sheetName);
             this.gquery = gquery;
         }
+        /**
+         * Select specific columns to return
+         * @param headers Array of column names to select
+         * @returns GQueryTableFactory for chaining
+         */
         select(headers) {
             return new GQueryTableFactory(this).select(headers);
         }
+        /**
+         * Filter rows based on a condition
+         * @param filterFn Function that returns true for rows to include
+         * @returns GQueryTableFactory for chaining
+         */
         where(filterFn) {
             return new GQueryTableFactory(this).where(filterFn);
         }
+        /**
+         * Join with another sheet
+         * @param sheetName Name of sheet to join with
+         * @param sheetColumn Column in the joined sheet to match on
+         * @param joinColumn Column in this sheet to match on
+         * @param columnsToReturn Optional array of columns to return from joined sheet
+         * @returns GQueryTableFactory for chaining
+         */
         join(sheetName, sheetColumn, joinColumn, columnsToReturn) {
             return new GQueryTableFactory(this).join(sheetName, sheetColumn, joinColumn, columnsToReturn);
         }
+        /**
+         * Update rows in the sheet
+         * @param updateFn Function that receives a row and returns updated values
+         * @returns GQueryResult with updated rows
+         */
         update(updateFn) {
             return new GQueryTableFactory(this).update(updateFn);
         }
+        /**
+         * Append new rows to the sheet
+         * @param data Single object or array of objects to append
+         * @returns GQueryResult with appended rows
+         */
         append(data) {
-            // Handle single object by wrapping it in an array
             const dataArray = Array.isArray(data) ? data : [data];
             return appendInternal(this, dataArray);
         }
+        /**
+         * Get data from the sheet
+         * @param options Optional rendering options
+         * @returns GQueryResult with rows and headers
+         */
         get(options) {
             return new GQueryTableFactory(this).get(options);
         }
+        /**
+         * Execute a Google Visualization API query
+         * @param query Query string in Google Query Language
+         * @returns GQueryResult with query results
+         */
         query(query) {
             return queryInternal(this, query);
         }
+        /**
+         * Delete rows from the sheet
+         * @returns Object with count of deleted rows
+         */
         delete() {
             return new GQueryTableFactory(this).delete();
         }
     }
+    /**
+     * Factory class for building and executing queries with filters and joins
+     */
     class GQueryTableFactory {
         constructor(GQueryTable) {
             this.joinOption = [];
@@ -694,7 +770,6 @@ var GQuery = (function (exports) {
             return updateInternal(this, updateFn);
         }
         append(data) {
-            // Handle single object by wrapping it in an array
             const dataArray = Array.isArray(data) ? data : [data];
             return appendInternal(this.gQueryTable, dataArray);
         }

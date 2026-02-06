@@ -9,6 +9,49 @@ import {
 } from "./types";
 import { parseRows } from "./utils";
 
+/**
+ * Convert row values to appropriate types (boolean, date, number)
+ * Optimized to reduce redundant type checking
+ */
+function convertRowTypes(row: GQueryRow, headers: string[]): GQueryRow {
+  const newRow: GQueryRow = { __meta: row.__meta };
+  
+  headers.forEach((header) => {
+    let value = row[header];
+    
+    // Skip empty values
+    if (value === undefined || value === null || value === "") {
+      newRow[header] = value;
+      return;
+    }
+    
+    // Only process string values for type conversion
+    if (typeof value === "string") {
+      const lowerValue = value.toLowerCase();
+      
+      // Check for boolean
+      if (lowerValue === "true" || lowerValue === "false") {
+        newRow[header] = lowerValue === "true";
+        return;
+      }
+      
+      // Check for date pattern (MM/DD/YYYY or MM/DD/YYYY HH:MM:SS)
+      if (/^\d{1,2}\/\d{1,2}\/\d{4}(\s\d{1,2}:\d{1,2}(:\d{1,2})?)?$/.test(value)) {
+        const dateValue = new Date(value);
+        if (!isNaN(dateValue.getTime())) {
+          newRow[header] = dateValue;
+          return;
+        }
+      }
+    }
+    
+    // Keep original value if no conversion applied
+    newRow[header] = value;
+  });
+  
+  return newRow;
+}
+
 export function getManyInternal(
   gquery: GQuery,
   sheetNames: string[],
@@ -27,42 +70,10 @@ export function getManyInternal(
 
   const result: { [sheetName: string]: GQueryResult } = {};
 
-  let sheetMetadata: { [sheetName: string]: { [header: string]: string } } = {};
-  try {
-    const metadataResponse = callHandler(() =>
-      Sheets.Spreadsheets.get(gquery.spreadsheetId, {
-        fields: "sheets(properties(title),tables.columnProperties)",
-      })
-    );
-
-    if (metadataResponse && metadataResponse.sheets) {
-      metadataResponse.sheets.forEach((sheet) => {
-        const sheetName = sheet.properties?.title;
-        if (!sheetName || !sheetNames.includes(sheetName)) return;
-
-        // @ts-expect-error: tables may not be typed
-        if (sheet.tables && sheet.tables.length > 0) {
-          // @ts-expect-error
-          const table = sheet.tables[0];
-          if (table.columnProperties) {
-            sheetMetadata[sheetName] = {};
-            Object.keys(table.columnProperties).forEach((column) => {
-              const dataType = table.columnProperties[column].dataType;
-              if (dataType) {
-                sheetMetadata[sheetName][column] = dataType;
-              }
-            });
-          }
-        }
-      });
-    }
-  } catch (e) {
-    console.error("Error fetching metadata:", e);
-  }
-
+  // Fetch data using batchGet for better performance
   const dataResponse = callHandler(() =>
     Sheets.Spreadsheets.Values.batchGet(gquery.spreadsheetId, {
-      ranges: sheetNames.map((s) => `${s}`),
+      ranges: sheetNames,
       valueRenderOption,
       dateTimeRenderOption,
     })
@@ -85,52 +96,9 @@ export function getManyInternal(
 
     const headers = valueRange.values[0].map((h) => String(h));
     let rows = parseRows(headers, valueRange.values.slice(1));
-    const columnTypes = sheetMetadata[sheetName] || {};
 
-    rows = rows.map((row) => {
-      const newRow: GQueryRow = { __meta: row.__meta };
-      headers.forEach((header) => {
-        let value = row[header];
-        if (value !== undefined && value !== null && value !== "") {
-          if (columnTypes[header]) {
-            const dataType = columnTypes[header];
-            if (dataType === "BOOLEAN") {
-              if (typeof value === "string") {
-                value = value.toLowerCase() === "true";
-              }
-            } else if (dataType === "DATE_TIME") {
-              const dateValue = new Date(value);
-              if (!isNaN(dateValue.getTime())) {
-                value = dateValue;
-              }
-            } else if (dataType === "NUMBER") {
-              const numValue = Number(value);
-              if (!isNaN(numValue)) {
-                value = numValue;
-              }
-            }
-          } else if (typeof value === "string") {
-            if (
-              value.toLowerCase() === "true" ||
-              value.toLowerCase() === "false"
-            ) {
-              value = value.toLowerCase() === "true";
-            } else if (
-              /^\d{1,2}\/\d{1,2}\/\d{4}(\s\d{1,2}:\d{1,2}(:\d{1,2})?)?$/.test(
-                value
-              )
-            ) {
-              const dateValue = new Date(value);
-              if (!isNaN(dateValue.getTime())) {
-                value = dateValue;
-              }
-            }
-          }
-        }
-        newRow[header] = value;
-      });
-      return newRow;
-    });
+    // Apply type conversion to rows
+    rows = rows.map((row) => convertRowTypes(row, headers));
 
     result[sheetName] = { headers, rows };
   });
@@ -315,99 +283,90 @@ export function queryInternal(
   gqueryTable: GQueryTable,
   query: string
 ): GQueryResult {
-  var sheet = gqueryTable.sheet;
-  var range = sheet.getDataRange();
-  var replaced = query;
-  for (var i = 0; i < range.getLastColumn() - 1; i++) {
-    var rng = sheet.getRange(1, i + 1);
-
-    var name = rng.getValue();
-    var letter = rng.getA1Notation().match(/([A-Z]+)/)[0];
-    replaced = replaced.replaceAll(name, letter);
+  const sheet = gqueryTable.sheet;
+  const range = sheet.getDataRange();
+  
+  // Build column name to letter mapping
+  let replaced = query;
+  const lastColumn = range.getLastColumn();
+  
+  for (let i = 0; i < lastColumn; i++) {
+    const rng = sheet.getRange(1, i + 1);
+    const name = rng.getValue();
+    const letter = rng.getA1Notation().match(/([A-Z]+)/)?.[0];
+    
+    if (letter && name) {
+      replaced = replaced.replaceAll(name, letter);
+    }
   }
 
-  var response = UrlFetchApp.fetch(
-    Utilities.formatString(
-      "https://docs.google.com/spreadsheets/d/%s/gviz/tq?tq=%s%s%s%s",
-      sheet.getParent().getId(),
-      encodeURIComponent(replaced),
-      "&sheet=" + sheet.getName(),
-      typeof range === "string" ? "&range=" + range : "",
-      "&headers=1"
-    ),
-    {
-      headers: {
-        Authorization: "Bearer " + ScriptApp.getOAuthToken(),
-      },
-    }
+  // Build query URL
+  const url = Utilities.formatString(
+    "https://docs.google.com/spreadsheets/d/%s/gviz/tq?tq=%s&sheet=%s%s&headers=1",
+    sheet.getParent().getId(),
+    encodeURIComponent(replaced),
+    sheet.getName(),
+    typeof range === "string" ? "&range=" + range : ""
   );
 
-  var jsonResponse = JSON.parse(
-      response
-        .getContentText()
-        .replace("/*O_o*/\n", "")
-        .replace(/(google\.visualization\.Query\.setResponse\()|(\);)/gm, "")
-    ),
-    table = jsonResponse.table;
+  // Fetch with authorization
+  const response = UrlFetchApp.fetch(url, {
+    headers: {
+      Authorization: "Bearer " + ScriptApp.getOAuthToken(),
+    },
+  });
+
+  // Parse response
+  const jsonResponse = JSON.parse(
+    response
+      .getContentText()
+      .replace("/*O_o*/\n", "")
+      .replace(/(google\.visualization\.Query\.setResponse\()|(\);)/gm, "")
+  );
+  
+  const table = jsonResponse.table;
 
   // Extract column headers
   const headers = table.cols.map((col: any) => col.label);
 
   // Map rows to proper GQueryRow format
-  const rows = table.rows.map((row: any, _rowIndex: number) => {
+  const rows = table.rows.map((row: any) => {
     const rowObj: GQueryRow = {
       __meta: {
-        rowNum: -1, // +2 because we're starting from index 0 and row 1 is headers
+        rowNum: -1, // Query results don't have reliable row numbers
         colLength: row.c.length,
       },
     };
 
-    // Initialize all header fields to empty strings
-    headers.forEach((header: string) => {
-      rowObj[header] = "";
-    });
-
     // Populate row data
     table.cols.forEach((col: any, colIndex: number) => {
       const cellData = row.c[colIndex];
+      let value: any = "";
+      
       if (cellData) {
         // Use formatted value if available, otherwise use raw value
-        let value =
-          cellData.f !== null && cellData.f !== undefined
-            ? cellData.f
-            : cellData.v;
+        value = cellData.f !== null && cellData.f !== undefined
+          ? cellData.f
+          : cellData.v;
 
-        // Convert known data types
-        if (value instanceof Date) {
-          // Keep as Date object
-        } else if (typeof value === "string") {
-          // Try to auto-detect date strings
-          if (
-            /^\d{1,2}\/\d{1,2}\/\d{4}(\s\d{1,2}:\d{1,2}(:\d{1,2})?)?$/.test(
-              value
-            )
-          ) {
-            try {
-              const dateValue = new Date(value);
-              if (!isNaN(dateValue.getTime())) {
-                value = dateValue;
-              }
-            } catch (e) {
-              // Keep as string if conversion fails
-            }
+        // Convert date strings if needed
+        if (typeof value === "string" && 
+            /^\d{1,2}\/\d{1,2}\/\d{4}(\s\d{1,2}:\d{1,2}(:\d{1,2})?)?$/.test(value)) {
+          const dateValue = new Date(value);
+          if (!isNaN(dateValue.getTime())) {
+            value = dateValue;
           }
         }
-
-        rowObj[col.label] = value;
       }
+      
+      rowObj[col.label] = value;
     });
 
     return rowObj;
   });
 
-  // Return in the standard GQueryResult format
   return {
-    headers: headers,
-    rows: rows,
+    headers,
+    rows,
   };
 }

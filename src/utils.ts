@@ -1,6 +1,12 @@
 import { callHandler } from "./ratelimit";
 import { GQueryRow } from "./types";
 
+/**
+ * Parse raw sheet values into GQueryRow objects with metadata
+ * @param headers Column headers from the sheet
+ * @param values Raw values from the sheet (without header row)
+ * @returns Array of GQueryRow objects
+ */
 export function parseRows(
   headers: string[],
   values: any[][]
@@ -8,7 +14,7 @@ export function parseRows(
   return values.map((row, rowIndex) => {
     const obj: GQueryRow = {
       __meta: {
-        rowNum: rowIndex + 2, // +2 because header row is 1
+        rowNum: rowIndex + 2, // +2 because header is row 1, data starts at row 2
         colLength: headers.length,
       },
     } as GQueryRow;
@@ -21,6 +27,12 @@ export function parseRows(
   });
 }
 
+/**
+ * Fetch all data from a sheet including headers
+ * @param spreadsheetId The ID of the spreadsheet
+ * @param sheetName The name of the sheet to fetch
+ * @returns Object containing headers and rows
+ */
 export function fetchSheetData(
   spreadsheetId: string,
   sheetName: string
@@ -28,6 +40,7 @@ export function fetchSheetData(
   const response = callHandler(() =>
     Sheets.Spreadsheets.Values.get(spreadsheetId, sheetName)
   );
+  
   const values = response.values || [];
 
   if (values.length === 0) {
