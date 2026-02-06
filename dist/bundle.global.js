@@ -782,12 +782,7 @@ var GQuery = (function (exports) {
     exports.GQueryTable = GQueryTable;
     exports.GQueryTableFactory = GQueryTableFactory;
 
-    return exports;
+    return Object.assign(exports.GQuery, exports);
 
 })({});
 //# sourceMappingURL=bundle.global.js.map
-function DateTimeRenderOption(...args) { return GQuery.DateTimeRenderOption(...args); }
-function GQuery(...args) { return GQuery.GQuery(...args); }
-function GQueryTable(...args) { return GQuery.GQueryTable(...args); }
-function GQueryTableFactory(...args) { return GQuery.GQueryTableFactory(...args); }
-function ValueRenderOption(...args) { return GQuery.ValueRenderOption(...args); }
