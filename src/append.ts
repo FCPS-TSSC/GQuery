@@ -6,34 +6,32 @@ export function appendInternal(
   table: GQueryTable,
   data: { [key: string]: any }[]
 ): GQueryResult {
-  // If no data is provided or empty array, return empty result
+  // Validate input data
   if (!data || data.length === 0) {
     return { rows: [], headers: [] };
   }
 
-  // Extract spreadsheet information
   const spreadsheetId = table.spreadsheetId;
   const sheetName = table.sheetName;
 
-  // First, get the current headers from the sheet
+  // Fetch headers from the first row
   const response = callHandler(() =>
     Sheets.Spreadsheets.Values.get(spreadsheetId, `${sheetName}!1:1`)
   );
 
-  // If sheet is empty or doesn't exist, cannot append
+  // Validate sheet exists and has headers
   if (!response || !response.values || response.values.length === 0) {
     throw new Error(`Sheet "${sheetName}" not found or has no headers`);
   }
 
   const headers = response.values[0].map((header) => String(header));
 
-  // Format data to be appended according to the sheet's headers
+  // Map data to rows according to header order
   const rowsToAppend = data.map((item) => {
-    // For each header, get corresponding value from item or empty string
     return headers.map((header) => {
       let value = item[header];
 
-      // Convert Date objects to strings
+      // Convert Date objects to locale strings
       if (value instanceof Date) {
         value = value.toLocaleString();
       }
@@ -42,12 +40,12 @@ export function appendInternal(
     });
   });
 
-  // Use Sheets API to append the data
+  // Append data using Sheets API
   const appendResponse = callHandler(() =>
     Sheets.Spreadsheets.Values.append(
       { values: rowsToAppend },
       spreadsheetId,
-      `${sheetName}`,
+      sheetName,
       {
         valueInputOption: "USER_ENTERED",
         insertDataOption: "OVERWRITE",
@@ -58,7 +56,7 @@ export function appendInternal(
     )
   );
 
-  // Check if append was successful
+  // Validate append was successful
   if (
     !appendResponse ||
     !appendResponse.updates ||
@@ -67,7 +65,7 @@ export function appendInternal(
     throw new Error("Failed to append data to sheet");
   }
 
-  // Extract information about the appended rows
+  // Parse the updated range to get row numbers
   const updatedRange = appendResponse.updates.updatedRange;
   const rangeMatch = updatedRange.match(/([^!]+)!([A-Z]+)(\d+):([A-Z]+)(\d+)/);
 
@@ -75,9 +73,7 @@ export function appendInternal(
     throw new Error(`Could not parse updated range: ${updatedRange}`);
   }
 
-  // Get start and end row numbers from the updated range
-  const startRow = parseInt(rangeMatch[3]);
-  const endRow = parseInt(rangeMatch[5]);
+  const startRow = parseInt(rangeMatch[3], 10);
 
   // Create result rows with metadata
   const resultRows: GQueryRow[] = rowsToAppend.map((row, index) => {
@@ -88,7 +84,7 @@ export function appendInternal(
       },
     };
 
-    // Add data according to headers
+    // Map values to header names
     headers.forEach((header, colIndex) => {
       rowObj[header] = row[colIndex];
     });
@@ -98,6 +94,6 @@ export function appendInternal(
 
   return {
     rows: resultRows,
-    headers: headers,
+    headers,
   };
 }
