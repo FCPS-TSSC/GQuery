@@ -38,7 +38,7 @@ export function fetchSheetData(
   sheetName: string
 ): { headers: string[]; rows: GQueryRow[] } {
   const response = callHandler(() =>
-    Sheets.Spreadsheets.Values.get(spreadsheetId, sheetName)
+    Sheets.Spreadsheets!.Values!.get(spreadsheetId, sheetName)
   );
   
   const values = response.values || [];

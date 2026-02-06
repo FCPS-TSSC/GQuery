@@ -62,7 +62,7 @@ export class GQueryTable {
     this.spreadsheetId = spreadsheetId;
     this.sheetName = sheetName;
     this.spreadsheet = SpreadsheetApp.openById(spreadsheetId);
-    this.sheet = this.spreadsheet.getSheetByName(sheetName);
+    this.sheet = this.spreadsheet.getSheetByName(sheetName)!;
     this.gquery = gquery;
   }
 

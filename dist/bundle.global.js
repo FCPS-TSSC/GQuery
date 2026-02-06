@@ -220,7 +220,7 @@ var GQuery = (function (exports) {
                     const localJoinValue = row[joinColumn];
                     const joinedRows = joinMap[String(localJoinValue)] || [];
                     // Create joined row with all join table fields
-                    const joinedRow = Object.assign({}, row);
+                    const joinedRow = { ...row };
                     joinedRows.forEach((joinRow, index) => {
                         // Determine which columns to include from join
                         const columnsToInclude = columnsToReturn ||
@@ -387,7 +387,7 @@ var GQuery = (function (exports) {
             : rows;
         // Apply updates to filtered rows
         const updatedRows = filteredRows.map((row) => {
-            const updatedRow = Object.assign({}, row);
+            const updatedRow = { ...row };
             try {
                 const result = updateFn(updatedRow);
                 if (result && typeof result === "object") {
@@ -786,3 +786,8 @@ var GQuery = (function (exports) {
 
 })({});
 //# sourceMappingURL=bundle.global.js.map
+function DateTimeRenderOption(...args) { return GQuery.DateTimeRenderOption(...args); }
+function GQuery(...args) { return GQuery.GQuery(...args); }
+function GQueryTable(...args) { return GQuery.GQueryTable(...args); }
+function GQueryTableFactory(...args) { return GQuery.GQueryTableFactory(...args); }
+function ValueRenderOption(...args) { return GQuery.ValueRenderOption(...args); }

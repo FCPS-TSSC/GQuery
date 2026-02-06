@@ -20,7 +20,7 @@ export function deleteInternal(gqueryTableFactory: GQueryTableFactory): {
   // Find rows matching the filter condition
   const rowsToDelete = rows.filter((row) => {
     try {
-      return gqueryTableFactory.filterOption(row);
+      return gqueryTableFactory.filterOption!(row);
     } catch (error) {
       console.error("Error filtering row:", error);
       return false;
@@ -51,7 +51,7 @@ export function deleteInternal(gqueryTableFactory: GQueryTableFactory): {
   // Execute batch delete
   try {
     callHandler(() =>
-      Sheets.Spreadsheets.batchUpdate(batchUpdateRequest, spreadsheetId)
+      Sheets.Spreadsheets!.batchUpdate(batchUpdateRequest, spreadsheetId)
     );
     return { deletedRows: rowsToDelete.length };
   } catch (error) {

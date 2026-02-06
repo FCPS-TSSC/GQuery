@@ -85,7 +85,7 @@ export function updateInternal(
     };
 
     callHandler(() =>
-      Sheets.Spreadsheets.Values.batchUpdate(batchUpdateRequest, spreadsheetId)
+      Sheets.Spreadsheets!.Values!.batchUpdate(batchUpdateRequest, spreadsheetId)
     );
   }
 

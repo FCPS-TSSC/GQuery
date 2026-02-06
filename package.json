@@ -1,11 +1,11 @@
 {
-  "name": "@FCPS-TSSC/gquery",
-  "version": "1.3.1",
+  "name": "@fcps-tssc/gquery",
+  "version": "1.4.0",
   "main": "dist/bundle.js",
   "types": "dist/bundle.d.ts",
   "source": "src/index.ts",
   "scripts": {
-    "build": "rollup -c && node post-rollup.js"
+    "build": "rollup -c"
   },
   "dependencies": {
     "@types/google-apps-script": "^1.0.97"
