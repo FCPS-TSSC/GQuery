@@ -20,7 +20,15 @@ Yet another Google Sheets ORM for Apps Script, supporting advanced features like
 
 ## Ways to Install
 
-#### (Recommended) As a NPM Package
+### Setting Your Project Up
+
+To use GQuery, you must first enable the Google Sheets API in your Apps Script project. To do this:
+
+1. Go to your project editor and click on the plus button next to "Services"
+2. Find "Google Sheets API" in the list and click on it to add it to your project.
+3. Leave the version as-is and the identifier as-is, then click Add.
+
+### (Recommended) As a NPM Package
 
 If you use a build toolchain in your Apps Script project, like Rollup or Vite, this is the preferred installation method.
 
@@ -29,7 +37,7 @@ If you use a build toolchain in your Apps Script project, like Rollup or Vite, t
 
 You'll call the GQuery class via `new GQuery()`
 
-#### As an Apps Script Library
+### As an Apps Script Library
 
 For traditional Apps Script projects, it is possible to import the Apps Script code as a library.
 
@@ -40,7 +48,7 @@ For traditional Apps Script projects, it is possible to import the Apps Script c
 
 You'll call the GQuery class via `new GQuery.GQuery()` (The first GQuery is your identifier)
 
-#### As a Standalone Script
+### As a Standalone Script
 
 You can also copy and paste the code from `dist/bundle.global.js` directly into your Apps Script project as a standalone script file. It is recommended to go to a tag release and copy from there to ensure stability. (ex. v1.4.0) The file type does not matter and can be placed in a .gs file without issue.
 
@@ -68,7 +76,7 @@ Modifier Functions
 | WHERE                | Used to filter rows based on a condition. Returns a GQueryTableFactory.                                                                                          |
 | [JOIN](#using-joins) | Used to join with another sheet based on the sheet's column, a join column, and allows a selection of different columns to return. Returns a GQueryTableFactory. |
 
-#### Using GET
+### Using GET
 
 Using GET requires that you first specify a sheet to query with the .from() function, then you can optionally specify columns to return with .select() and filter rows with .where(). Optionally, .join() can be used to include columns from other sheets. Finally, you call .get() to execute the query and return the results.
 
@@ -91,7 +99,7 @@ const result = gq
 }
 ```
 
-#### Using GET MANY
+### Using GET MANY
 
 GET MANY allows you to retrieve data from multiple sheets in a single query. You specify the sheets and then call .getMany() to execute the query.
 
@@ -119,7 +127,7 @@ const result = gq.getMany(["Buildings", "Rooms"]);
 }
 ```
 
-#### Using QUERY
+### Using QUERY
 
 QUERY allows you to use Google's Query Visualization Language to retrieve data from a sheet. You specify the sheet and the query string, then call .query() to execute. This is often faster than using the modifier functions and can be more concise for complex queries, but it does not support joins or multiple sheets. It is also read-only.
 
@@ -138,7 +146,7 @@ const result = gq.from("Sheet1").query("SELECT Name, Age WHERE Age > 18");
 }
 ```
 
-#### Using UPDATE
+### Using UPDATE
 
 UPDATE allows you to update rows in a sheet based on a condition. You specify the sheet, the new values, and a condition to determine which rows to update. Then call .update() to execute.
 
@@ -161,7 +169,7 @@ gq.from("Sheet1")
 }
 ```
 
-#### Using APPEND
+### Using APPEND
 
 APPEND allows you to add new rows to a sheet. You specify the sheet and the new row data, then call .append() to execute.
 
@@ -180,7 +188,7 @@ gq.from("Sheet1").append({ Name: "Charlie", Age: 22 });
 }
 ```
 
-#### Using DELETE
+### Using DELETE
 
 DELETE allows you to remove rows from a sheet based on a condition. You specify the sheet and a condition to determine which rows to delete, then call .delete() to execute.
 
@@ -197,7 +205,7 @@ gq.from("Sheet1")
 }
 ```
 
-#### Using JOINS
+### Using JOINS
 
 JOIN allows you to combine data from multiple sheets based on a common column. You specify the sheet to join with, the column to join on, and optionally which columns to return from the joined sheet.
 
