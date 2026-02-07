@@ -50,23 +50,23 @@ You'll call the GQuery class via `new GQuery.GQuery()` (The first GQuery is your
 
 This chart shows a quick overview of the different functions GQuery offers.
 
-| Function | Description                                                                                                                                                                   | .from() | .select() | .where() | .join() |
-| :------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :-----: | :-------: | :------: | :-----: |
-| GET      | Retrieve row(s) in a single sheet.                                                                                                                                            |    Y    |     Y     |    Y     |    Y    |
-| GET MANY | Retrieve rows from multiple sheets.                                                                                                                                           |    N    |     N     |    N     |    N    |
-| QUERY    | Retrieve data from a single sheet via the Google's[Query Visualization Language](https://developers.google.com/chart/interactive/docs/querylanguage#case-sensitivityhttps:/). |    Y    |     Y     |    Y     |    Y    |
-| UPDATE   | Update rows in a single sheet.                                                                                                                                                |    Y    |     Y     |    Y     |    Y    |
-| APPEND   | Add rows to a single sheet.                                                                                                                                                   |    Y    |     Y     |    Y     |    Y    |
-| DELETE   | Delete rows from a single sheet.                                                                                                                                              |    Y    |     Y     |    Y     |    Y    |
+| Function                    | Description                                                                                                                                                                    | .from() | .select() | .where() | .join() |
+| :-------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :-----: | :-------: | :------: | :-----: |
+| [GET](#using-get)           | Retrieve row(s) in a single sheet.                                                                                                                                             |    Y    |     Y     |    Y     |    Y    |
+| [GET MANY](#using-get-many) | Retrieve rows from multiple sheets.                                                                                                                                            |    N    |     N     |    N     |    N    |
+| [QUERY](#using-query)       | Retrieve data from a single sheet via the Google's [Query Visualization Language](https://developers.google.com/chart/interactive/docs/querylanguage#case-sensitivityhttps:/). |    Y    |     Y     |    Y     |    Y    |
+| [UPDATE](#using-update)     | Update rows in a single sheet.                                                                                                                                                 |    Y    |     Y     |    Y     |    Y    |
+| [APPEND](#using-append)     | Add rows to a single sheet.                                                                                                                                                    |    Y    |     Y     |    Y     |    Y    |
+| [DELETE](#using-delete)     | Delete rows from a single sheet.                                                                                                                                               |    Y    |     Y     |    Y     |    Y    |
 
 Modifier Functions
 
-| Function | Description                                                                                                                                                      |
-| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| FROM     | Used to select the target sheet for all following queries. Returns a GQueryTable.                                                                                |
-| SELECT   | Used to select specific columns to return. Returns a GQueryTableFactory.                                                                                         |
-| WHERE    | Used to filter rows based on a condition. Returns a GQueryTableFactory.                                                                                          |
-| JOIN     | Used to join with another sheet based on the sheet's column, a join column, and allows a selection of different columns to return. Returns a GQueryTableFactory. |
+| Function             | Description                                                                                                                                                      |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FROM                 | Used to select the target sheet for all following queries. Returns a GQueryTable.                                                                                |
+| SELECT               | Used to select specific columns to return. Returns a GQueryTableFactory.                                                                                         |
+| WHERE                | Used to filter rows based on a condition. Returns a GQueryTableFactory.                                                                                          |
+| [JOIN](#using-joins) | Used to join with another sheet based on the sheet's column, a join column, and allows a selection of different columns to return. Returns a GQueryTableFactory. |
 
 #### Using GET
 
