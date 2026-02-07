@@ -40,7 +40,7 @@ export class GQuery {
    */
   getMany(
     sheetNames: string[],
-    options?: GQueryReadOptions
+    options?: GQueryReadOptions,
   ): {
     [sheetName: string]: GQueryResult;
   } {
@@ -96,13 +96,13 @@ export class GQueryTable {
     sheetName: string,
     sheetColumn: string,
     joinColumn: string,
-    columnsToReturn?: string[]
+    columnsToReturn?: string[],
   ): GQueryTableFactory {
     return new GQueryTableFactory(this).join(
       sheetName,
       sheetColumn,
       joinColumn,
-      columnsToReturn
+      columnsToReturn,
     );
   }
 
@@ -112,7 +112,7 @@ export class GQueryTable {
    * @returns GQueryResult with updated rows
    */
   update(
-    updateFn: (row: Record<string, any>) => Record<string, any>
+    updateFn: (row: Record<string, any>) => Record<string, any>,
   ): GQueryResult {
     return new GQueryTableFactory(this).update(updateFn);
   }
@@ -123,7 +123,7 @@ export class GQueryTable {
    * @returns GQueryResult with appended rows
    */
   append(
-    data: { [key: string]: any }[] | { [key: string]: any }
+    data: { [key: string]: any }[] | { [key: string]: any },
   ): GQueryResult {
     const dataArray = Array.isArray(data) ? data : [data];
     return appendInternal(this, dataArray);
@@ -188,7 +188,7 @@ export class GQueryTableFactory {
     sheetName: string,
     sheetColumn: string,
     joinColumn: string,
-    columnsToReturn?: string[]
+    columnsToReturn?: string[],
   ): GQueryTableFactory {
     this.joinOption.push({
       sheetName,
@@ -204,13 +204,13 @@ export class GQueryTableFactory {
   }
 
   update(
-    updateFn: (row: Record<string, any>) => Record<string, any>
+    updateFn: (row: Record<string, any>) => Record<string, any>,
   ): GQueryResult {
     return updateInternal(this, updateFn);
   }
 
   append(
-    data: { [key: string]: any }[] | { [key: string]: any }
+    data: { [key: string]: any }[] | { [key: string]: any },
   ): GQueryResult {
     const dataArray = Array.isArray(data) ? data : [data];
     return appendInternal(this.gQueryTable, dataArray);
