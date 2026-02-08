@@ -84,7 +84,7 @@ Using GET requires that you first specify a sheet to query with the .from() func
 const gq = new GQuery();
 const result = gq
   .from("Sheet1")
-  .select("Name", "Age")
+  .select(["Name", "Age"])
   .where((row) => row.Age > 18)
   .get();
 ```
