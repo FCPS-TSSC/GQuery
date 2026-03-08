@@ -68,13 +68,66 @@ var GQuery = (function (exports) {
      */
     class GQuerySchemaError extends Error {
         constructor(issues, row) {
-            super(`GQuery schema validation failed: ${issues.map((i) => i.message).join("; ")}`);
+            super(`GQuery schema validation failed:\n${issues
+            .map((i) => {
+            var _a;
+            const pathStr = ((_a = i.path) === null || _a === void 0 ? void 0 : _a.length)
+                ? i.path
+                    .map((p) => (typeof p === "object" ? p.key : p))
+                    .join(".")
+                : "(root)";
+            return `  [${pathStr}] ${i.message}`;
+        })
+            .join("\n")}\nRow data: ${JSON.stringify(row)}`);
             this.issues = issues;
             this.row = row;
             this.name = "GQuerySchemaError";
         }
     }
 
+    /**
+     * Try to parse a string as a JSON object or array. Returns the original
+     * value if it is not valid JSON or not an object/array literal.
+     */
+    function tryParseJson(value) {
+        const trimmed = value.trim();
+        if ((trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+            (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
+            try {
+                return JSON.parse(trimmed);
+            }
+            catch {
+                // not valid JSON – fall through
+            }
+        }
+        return value;
+    }
+    /**
+     * Encode a value for writing to a sheet cell.
+     * - Dates are converted to locale strings.
+     * - Plain objects/arrays are JSON-stringified.
+     * - All other values are returned as-is.
+     */
+    function encodeCellValue(value) {
+        if (value instanceof Date) {
+            return value.toLocaleString();
+        }
+        if (value !== null && typeof value === "object") {
+            return JSON.stringify(value);
+        }
+        return value;
+    }
+    /**
+     * Normalize a data object for schema validation:
+     * empty strings are treated as undefined (equivalent to a blank cell).
+     */
+    function normalizeForSchema(data) {
+        const normalized = {};
+        for (const key of Object.keys(data)) {
+            normalized[key] = data[key] === "" ? undefined : data[key];
+        }
+        return normalized;
+    }
     /**
      * Parse raw sheet values into GQueryRow objects with metadata
      * @param headers Column headers from the sheet
@@ -90,7 +143,8 @@ var GQuery = (function (exports) {
                 },
             };
             headers.forEach((header, i) => {
-                obj[header] = row[i] !== undefined ? row[i] : "";
+                const raw = row[i] !== undefined ? row[i] : "";
+                obj[header] = typeof raw === "string" ? tryParseJson(raw) : raw;
             });
             return obj;
         });
@@ -136,7 +190,7 @@ var GQuery = (function (exports) {
     function applySchemaToRows(schema, rows) {
         return rows.map((row) => {
             const { __meta, ...data } = row;
-            const validated = applySchema$2(schema, data);
+            const validated = applySchema$2(schema, normalizeForSchema(data));
             return { ...validated, __meta };
         });
     }
@@ -167,6 +221,18 @@ var GQuery = (function (exports) {
                     if (!isNaN(dateValue.getTime())) {
                         newRow[header] = dateValue;
                         return;
+                    }
+                }
+                // Try to parse JSON objects/arrays
+                const trimmed = value.trim();
+                if ((trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+                    (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
+                    try {
+                        newRow[header] = JSON.parse(trimmed);
+                        return;
+                    }
+                    catch {
+                        // not valid JSON
                     }
                 }
             }
@@ -418,7 +484,7 @@ var GQuery = (function (exports) {
      */
     function applySchema$1(schema, row) {
         const { __meta, ...data } = row;
-        const result = schema["~standard"].validate(data);
+        const result = schema["~standard"].validate(normalizeForSchema(data));
         if (result instanceof Promise) {
             throw new Error("GQuery does not support async schema validation. " +
                 "Google Apps Script is a synchronous runtime.");
@@ -469,12 +535,8 @@ var GQuery = (function (exports) {
             const rowIndex = updatedRow.__meta.rowNum - 2;
             const originalRow = rows[rowIndex];
             headers.forEach((header, columnIndex) => {
-                let updatedValue = updatedRow[header];
-                const originalValue = originalRow[header];
-                // Convert dates to locale string for comparison
-                if (updatedValue instanceof Date) {
-                    updatedValue = updatedValue.toLocaleString();
-                }
+                const originalValue = encodeCellValue(originalRow[header]);
+                let updatedValue = encodeCellValue(updatedRow[header]);
                 // Skip if values are the same
                 if (originalValue === updatedValue)
                     return;
@@ -598,7 +660,7 @@ var GQuery = (function (exports) {
         const schema = table.schema;
         // Validate each item through the schema before writing, if requested
         const validatedData = schema && (options === null || options === void 0 ? void 0 : options.validate)
-            ? data.map((item) => applySchema(schema, item))
+            ? data.map((item) => applySchema(schema, normalizeForSchema(item)))
             : data;
         // Fetch headers from the first row
         const response = callHandler(() => Sheets.Spreadsheets.Values.get(spreadsheetId, `${sheetName}!1:1`));
@@ -611,12 +673,8 @@ var GQuery = (function (exports) {
         const rowsToAppend = validatedData.map((item) => {
             const record = item;
             return headers.map((header) => {
-                let value = record[header];
-                // Convert Date objects to locale strings
-                if (value instanceof Date) {
-                    value = value.toLocaleString();
-                }
-                return value !== undefined ? value : "";
+                const value = record[header];
+                return value !== undefined ? encodeCellValue(value) : "";
             });
         });
         // Append data using Sheets API
@@ -880,4 +938,3 @@ var GQuery = (function (exports) {
     return Object.assign(exports.GQuery, exports);
 
 })({});
-//# sourceMappingURL=bundle.global.js.map

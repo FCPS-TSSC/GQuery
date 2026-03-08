@@ -7,6 +7,7 @@ import {
   GQuerySchemaError,
   StandardSchemaV1,
 } from "./types";
+import { encodeCellValue, normalizeForSchema } from "./utils";
 
 /**
  * Validate a single value through a Standard Schema.
@@ -51,7 +52,9 @@ export function appendInternal<
   // Validate each item through the schema before writing, if requested
   const validatedData: T[] =
     schema && options?.validate
-      ? data.map((item) => applySchema(schema, item))
+      ? data.map((item) =>
+          applySchema(schema, normalizeForSchema(item as Record<string, any>)),
+        )
       : data;
 
   // Fetch headers from the first row
@@ -70,14 +73,8 @@ export function appendInternal<
   const rowsToAppend = validatedData.map((item) => {
     const record = item as Record<string, any>;
     return headers.map((header) => {
-      let value = record[header];
-
-      // Convert Date objects to locale strings
-      if (value instanceof Date) {
-        value = value.toLocaleString();
-      }
-
-      return value !== undefined ? value : "";
+      const value = record[header];
+      return value !== undefined ? encodeCellValue(value) : "";
     });
   });
 

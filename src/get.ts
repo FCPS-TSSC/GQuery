@@ -9,7 +9,7 @@ import {
   ValueRenderOption,
   DateTimeRenderOption,
 } from "./types";
-import { parseRows } from "./utils";
+import { normalizeForSchema, parseRows } from "./utils";
 
 /**
  * Validate a single row through a Standard Schema.
@@ -47,7 +47,7 @@ function applySchemaToRows<T>(
 ): GQueryRow<T>[] {
   return rows.map((row) => {
     const { __meta, ...data } = row;
-    const validated = applySchema(schema, data);
+    const validated = applySchema(schema, normalizeForSchema(data));
     return { ...(validated as object), __meta } as GQueryRow<T>;
   });
 }
@@ -86,6 +86,20 @@ function convertRowTypes(row: GQueryRow, headers: string[]): GQueryRow {
         if (!isNaN(dateValue.getTime())) {
           newRow[header] = dateValue;
           return;
+        }
+      }
+
+      // Try to parse JSON objects/arrays
+      const trimmed = value.trim();
+      if (
+        (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+        (trimmed.startsWith("[") && trimmed.endsWith("]"))
+      ) {
+        try {
+          newRow[header] = JSON.parse(trimmed);
+          return;
+        } catch {
+          // not valid JSON
         }
       }
     }

@@ -6,7 +6,7 @@ import {
   GQuerySchemaError,
   StandardSchemaV1,
 } from "./types";
-import { fetchSheetData } from "./utils";
+import { encodeCellValue, fetchSheetData, normalizeForSchema } from "./utils";
 
 /**
  * Validate a single row through a Standard Schema, preserving __meta.
@@ -17,7 +17,7 @@ function applySchema<T>(
   row: GQueryRow,
 ): GQueryRow<T> {
   const { __meta, ...data } = row;
-  const result = schema["~standard"].validate(data);
+  const result = schema["~standard"].validate(normalizeForSchema(data));
 
   if (result instanceof Promise) {
     throw new Error(
@@ -84,13 +84,8 @@ export function updateInternal<
     const originalRow = rows[rowIndex];
 
     headers.forEach((header, columnIndex) => {
-      let updatedValue = updatedRow[header];
-      const originalValue = originalRow[header];
-
-      // Convert dates to locale string for comparison
-      if (updatedValue instanceof Date) {
-        updatedValue = updatedValue.toLocaleString();
-      }
+      const originalValue = encodeCellValue(originalRow[header]);
+      let updatedValue = encodeCellValue(updatedRow[header]);
 
       // Skip if values are the same
       if (originalValue === updatedValue) return;

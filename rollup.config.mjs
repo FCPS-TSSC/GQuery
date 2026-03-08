@@ -71,7 +71,6 @@ export default [
         output: {
             file: "dist/bundle.js",
             format: "es",
-            sourcemap: true,
             interop: "esModule",
             name: "GQuery",
         },
@@ -83,7 +82,6 @@ export default [
         output: {
             file: "dist/bundle.global.js",
             format: "iife",
-            sourcemap: true,
             interop: "esModule",
             name: "GQuery",
         },

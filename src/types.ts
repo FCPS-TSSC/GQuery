@@ -130,7 +130,16 @@ export class GQuerySchemaError extends Error {
     public readonly row: Record<string, any>,
   ) {
     super(
-      `GQuery schema validation failed: ${issues.map((i) => i.message).join("; ")}`,
+      `GQuery schema validation failed:\n${issues
+        .map((i) => {
+          const pathStr = i.path?.length
+            ? i.path
+                .map((p) => (typeof p === "object" ? p.key : p))
+                .join(".")
+            : "(root)";
+          return `  [${pathStr}] ${i.message}`;
+        })
+        .join("\n")}\nRow data: ${JSON.stringify(row)}`,
     );
     this.name = "GQuerySchemaError";
   }
