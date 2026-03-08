@@ -8,6 +8,10 @@ Yet another Google Sheets ORM for Apps Script, supporting advanced features like
   - [(Recommended) As a NPM Package](#recommended-as-a-npm-package)
   - [As an Apps Script Library](#as-an-apps-script-library)
   - [As a Standalone Script](#as-a-standalone-script)
+- [Type-Safe Queries with Standard Schema](#type-safe-queries-with-standard-schema)
+  - [Type Inference Only](#type-inference-only)
+  - [Runtime Validation](#runtime-validation)
+  - [Handling Validation Errors](#handling-validation-errors)
 - [Usage](#usage)
   - [Using GET](#using-get)
   - [Using GET MANY](#using-get-many)
@@ -33,8 +37,8 @@ To use GQuery, you must first enable the Google Sheets API in your Apps Script p
 If you use a build toolchain in your Apps Script project, like Rollup or Vite, this is the preferred installation method.
 
 - First, create a file called `.npmrc` in the same directory as your package.json and add `@fcps-tssc:registry=https://npm.pkg.github.com`
-- To install via the command line: `npm install @fcps-tssc/gquery@1.4.1`
-- To add in your `package.json` dependencies: `"@fcps-tssc/gquery": "1.4.1"`
+- To install via the command line: `npm install @fcps-tssc/gquery@1.5.0`
+- To add in your `package.json` dependencies: `"@fcps-tssc/gquery": "1.5.0"`
 
 You'll call the GQuery class via `new GQuery()`
 
@@ -51,9 +55,101 @@ You'll call the GQuery class via `new GQuery.GQuery()` (The first GQuery is your
 
 ### As a Standalone Script
 
-You can also copy and paste the code from `dist/bundle.global.js` directly into your Apps Script project as a standalone script file. It is recommended to go to a tag release and copy from there to ensure stability. (ex. v1.4.0) The file type does not matter and can be placed in a .gs file without issue.
+You can also copy and paste the code from `dist/bundle.global.js` directly into your Apps Script project as a standalone script file. It is recommended to go to a tag release and copy from there to ensure stability. (ex. v1.5.0) The file type does not matter and can be placed in a .gs file without issue.
 
 You'll call the GQuery class via `new GQuery.GQuery()` (The first GQuery is your identifier)
+
+## Type-Safe Queries with Standard Schema
+
+GQuery supports [Standard Schema](https://standardschema.dev) — a common interface implemented by popular schema libraries like [Zod](https://zod.dev), [Valibot](https://valibot.dev), and [ArkType](https://arktype.io). Passing a schema to `.from()` gives you fully typed rows across all operations without adding any runtime dependency to GQuery itself.
+
+> **Note:** Standard Schema support requires a TypeScript build toolchain (e.g. the [NPM package](#recommended-as-a-npm-package) install method). It has no effect in plain `.gs` files.
+
+### Type Inference Only
+
+Pass your schema as the second argument to `.from()`. GQuery uses the schema's output type to type all rows returned by `.get()`, `.update()`, and `.append()` — with no runtime cost. The `.where()` filter function and `.update()` callback are also typed automatically.
+
+```typescript
+import { z } from "zod";
+
+const EmployeeSchema = z.object({
+  Name: z.string(),
+  Email: z.string().email(),
+  Department: z.string(),
+  Active: z.boolean(),
+  StartDate: z.date(),
+});
+
+const gq = new GQuery("your-spreadsheet-id");
+
+// result.rows is typed as GQueryRow<{ Name: string; Email: string; ... }>[]
+const result = gq
+  .from("Employees", EmployeeSchema)
+  .where((row) => row.Active) // row.Active is typed as boolean
+  .get();
+
+// TypeScript will error if the wrong shape is passed
+gq.from("Employees", EmployeeSchema).append({
+  Name: "Alice",
+  Email: "alice@example.com",
+  Department: "Engineering",
+  Active: true,
+  StartDate: new Date(),
+});
+```
+
+You can also specify a type manually without a schema using the generic type parameter — this is a compile-time assertion only and performs no validation:
+
+```typescript
+type EmployeeRow = { Name: string; Department: string; Active: boolean };
+
+const result = gq.from<EmployeeRow>("Employees").get();
+// result.rows is GQueryRow<EmployeeRow>[]
+```
+
+### Runtime Validation
+
+By default, the schema is used purely for TypeScript types. To also validate each row at runtime, pass `validate: true` to `.get()`, `.update()`, or `.append()`. GQuery will run each row through the schema's `validate()` function and throw a `GQuerySchemaError` if any row fails.
+
+```typescript
+// Validates every row returned from the sheet against EmployeeSchema
+const result = gq.from("Employees", EmployeeSchema).get({ validate: true });
+
+// Validates each item before writing to the sheet
+gq.from("Employees", EmployeeSchema).append(
+  {
+    Name: "Bob",
+    Email: "not-an-email",
+    Department: "Design",
+    Active: true,
+    StartDate: new Date(),
+  },
+  { validate: true }, // throws GQuerySchemaError — Email fails .email()
+);
+```
+
+> **Google Apps Script limitation:** Only synchronous schema validation is supported. Zod and Valibot both validate synchronously by default. If a schema's `validate()` returns a `Promise`, GQuery will throw immediately.
+
+### Handling Validation Errors
+
+`GQuerySchemaError` extends `Error` and exposes the full list of issues from the schema library, plus the raw row that failed.
+
+```typescript
+import { GQuerySchemaError } from "@fcps-tssc/gquery";
+
+try {
+  const result = gq.from("Employees", EmployeeSchema).get({ validate: true });
+} catch (e) {
+  if (e instanceof GQuerySchemaError) {
+    console.error("Validation failed:", e.message);
+    // e.issues — ReadonlyArray<{ message: string; path?: ... }>
+    // e.row    — the raw row object that failed
+    e.issues.forEach((issue) => console.error(issue.message));
+  }
+}
+```
+
+---
 
 ## Usage
 
@@ -70,12 +166,12 @@ This chart shows a quick overview of the different functions GQuery offers.
 
 Modifier Functions
 
-| Function             | Description                                                                                                                                                      |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| FROM                 | Used to select the target sheet for all following queries. Returns a GQueryTable.                                                                                |
-| SELECT               | Used to select specific columns to return. Returns a GQueryTableFactory.                                                                                         |
-| WHERE                | Used to filter rows based on a condition. Returns a GQueryTableFactory.                                                                                          |
-| [JOIN](#using-joins) | Used to join with another sheet based on the sheet's column, a join column, and allows a selection of different columns to return. Returns a GQueryTableFactory. |
+| Function             | Description                                                                                                                                                                          |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| FROM                 | Used to select the target sheet for all following queries. Optionally accepts a [Standard Schema](#type-safe-queries-with-standard-schema) for typed results. Returns a GQueryTable. |
+| SELECT               | Used to select specific columns to return. Returns a GQueryTableFactory.                                                                                                             |
+| WHERE                | Used to filter rows based on a condition. Returns a GQueryTableFactory.                                                                                                              |
+| [JOIN](#using-joins) | Used to join with another sheet based on the sheet's column, a join column, and allows a selection of different columns to return. Returns a GQueryTableFactory.                     |
 
 ### Using GET
 
