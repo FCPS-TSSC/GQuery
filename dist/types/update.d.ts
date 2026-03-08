@@ -1,3 +1,3 @@
 import { GQueryTableFactory } from "./index";
-import { GQueryResult } from "./types";
-export declare function updateInternal(gQueryTableFactory: GQueryTableFactory, updateFn: (row: Record<string, any>) => Record<string, any>): GQueryResult;
+import { GQueryResult, GQueryRow } from "./types";
+export declare function updateInternal<T extends Record<string, any> = Record<string, any>>(gQueryTableFactory: GQueryTableFactory<T>, updateFn: (row: GQueryRow<T>) => Partial<T>): GQueryResult<T>;

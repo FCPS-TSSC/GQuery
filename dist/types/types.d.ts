@@ -1,4 +1,50 @@
 /**
+ * Standard Schema V1 interface
+ * @see https://standardschema.dev
+ *
+ * Copied verbatim from the spec — no runtime dependency.
+ * Any schema library that implements this interface (Zod, Valibot, ArkType, etc.)
+ * can be passed directly to GQuery.from() for type inference and optional validation.
+ */
+export interface StandardSchemaV1<Input = unknown, Output = unknown> {
+    readonly "~standard": {
+        readonly version: 1;
+        readonly vendor: string;
+        readonly validate: (value: unknown) => StandardSchemaV1.Result<Output> | Promise<StandardSchemaV1.Result<Output>>;
+        readonly types?: StandardSchemaV1.Types<Input, Output> | undefined;
+    };
+}
+export declare namespace StandardSchemaV1 {
+    type Result<Output> = SuccessResult<Output> | FailureResult;
+    interface SuccessResult<Output> {
+        readonly value: Output;
+        readonly issues?: undefined;
+    }
+    interface FailureResult {
+        readonly issues: ReadonlyArray<Issue>;
+    }
+    interface Issue {
+        readonly message: string;
+        readonly path?: ReadonlyArray<PropertyKey | PathSegment> | undefined;
+    }
+    interface PathSegment {
+        readonly key: PropertyKey;
+    }
+    interface Types<Input, Output> {
+        readonly input: Input;
+        readonly output: Output;
+    }
+}
+/**
+ * Infer the output type from a StandardSchemaV1-compatible schema.
+ * Falls back to Record<string, unknown> if S is not a Standard Schema.
+ *
+ * @example
+ * const schema = z.object({ name: z.string() });
+ * type Row = InferSchema<typeof schema>; // { name: string }
+ */
+export type InferSchema<S> = S extends StandardSchemaV1<any, infer O> ? O : Record<string, unknown>;
+/**
  * Options for reading data from Google Sheets
  */
 export type GQueryReadOptions = {
@@ -6,20 +52,27 @@ export type GQueryReadOptions = {
     valueRenderOption?: ValueRenderOption;
     /** How dates and times should be rendered in the output */
     dateTimeRenderOption?: DateTimeRenderOption;
+    /**
+     * When true, each row is parsed through the table's schema (if set).
+     * Throws a GQuerySchemaError if validation fails.
+     * Defaults to false (schema is used for type inference only).
+     */
+    validate?: boolean;
 };
 /**
  * Result structure returned by GQuery operations
  */
-export type GQueryResult = {
-    /** Array of row objects */
-    rows: GQueryRow[];
+export type GQueryResult<T = Record<string, any>> = {
+    /** Array of row objects typed to T */
+    rows: GQueryRow<T>[];
     /** Column headers from the sheet */
     headers: string[];
 };
 /**
- * A single row with metadata about its position in the sheet
+ * A single row with metadata about its position in the sheet.
+ * T is the shape of the data columns; __meta is always present alongside them.
  */
-export type GQueryRow = Record<string, any> & {
+export type GQueryRow<T = Record<string, any>> = T & {
     __meta: {
         /** 1-based row number in the sheet (row 1 is headers) */
         rowNum: number;
@@ -48,4 +101,12 @@ export declare enum DateTimeRenderOption {
     FORMATTED_STRING = "FORMATTED_STRING",
     /** Dates and times will be rendered as serial numbers */
     SERIAL_NUMBER = "SERIAL_NUMBER"
+}
+/**
+ * Thrown when a row fails schema validation.
+ */
+export declare class GQuerySchemaError extends Error {
+    readonly issues: ReadonlyArray<StandardSchemaV1.Issue>;
+    readonly row: Record<string, any>;
+    constructor(issues: ReadonlyArray<StandardSchemaV1.Issue>, row: Record<string, any>);
 }

@@ -1,11 +1,44 @@
 import { GQueryTable } from "./index";
 import { callHandler } from "./ratelimit";
-import { GQueryResult, GQueryRow } from "./types";
+import {
+  GQueryReadOptions,
+  GQueryResult,
+  GQueryRow,
+  GQuerySchemaError,
+  StandardSchemaV1,
+} from "./types";
 
-export function appendInternal(
-  table: GQueryTable,
-  data: { [key: string]: any }[]
-): GQueryResult {
+/**
+ * Validate a single value through a Standard Schema.
+ * Throws GQuerySchemaError if validation fails.
+ */
+function applySchema<T>(
+  schema: StandardSchemaV1<unknown, T>,
+  value: unknown,
+): T {
+  const result = schema["~standard"].validate(value);
+
+  if (result instanceof Promise) {
+    throw new Error(
+      "GQuery does not support async schema validation. " +
+        "Google Apps Script is a synchronous runtime.",
+    );
+  }
+
+  if (result.issues) {
+    throw new GQuerySchemaError(result.issues, value as Record<string, any>);
+  }
+
+  return result.value;
+}
+
+export function appendInternal<
+  T extends Record<string, any> = Record<string, any>,
+>(
+  table: GQueryTable<T>,
+  data: T[],
+  options?: Pick<GQueryReadOptions, "validate">,
+): GQueryResult<T> {
   // Validate input data
   if (!data || data.length === 0) {
     return { rows: [], headers: [] };
@@ -13,10 +46,17 @@ export function appendInternal(
 
   const spreadsheetId = table.spreadsheetId;
   const sheetName = table.sheetName;
+  const schema = table.schema;
+
+  // Validate each item through the schema before writing, if requested
+  const validatedData: T[] =
+    schema && options?.validate
+      ? data.map((item) => applySchema(schema, item))
+      : data;
 
   // Fetch headers from the first row
   const response = callHandler(() =>
-    Sheets.Spreadsheets!.Values!.get(spreadsheetId, `${sheetName}!1:1`)
+    Sheets.Spreadsheets!.Values!.get(spreadsheetId, `${sheetName}!1:1`),
   );
 
   // Validate sheet exists and has headers
@@ -27,9 +67,10 @@ export function appendInternal(
   const headers = response.values[0].map((header) => String(header));
 
   // Map data to rows according to header order
-  const rowsToAppend = data.map((item) => {
+  const rowsToAppend = validatedData.map((item) => {
+    const record = item as Record<string, any>;
     return headers.map((header) => {
-      let value = item[header];
+      let value = record[header];
 
       // Convert Date objects to locale strings
       if (value instanceof Date) {
@@ -52,8 +93,8 @@ export function appendInternal(
         responseValueRenderOption: "FORMATTED_VALUE",
         responseDateTimeRenderOption: "FORMATTED_STRING",
         includeValuesInResponse: true,
-      }
-    )
+      },
+    ),
   );
 
   // Validate append was successful
@@ -75,31 +116,31 @@ export function appendInternal(
 
   const startRow = parseInt(rangeMatch[3], 10);
   const endRow = parseInt(rangeMatch[5], 10);
-  
+
   // Validate that all rows were appended
   const expectedRowCount = data.length;
   const actualRowCount = endRow - startRow + 1;
   if (actualRowCount !== expectedRowCount) {
     console.warn(
-      `Expected to append ${expectedRowCount} rows but ${actualRowCount} were appended`
+      `Expected to append ${expectedRowCount} rows but ${actualRowCount} were appended`,
     );
   }
 
-  // Create result rows with metadata
-  const resultRows: GQueryRow[] = rowsToAppend.map((row, index) => {
-    const rowObj: GQueryRow = {
+  // Create result rows with metadata, typed to T
+  const resultRows: GQueryRow<T>[] = rowsToAppend.map((row, index) => {
+    const rowObj: Record<string, any> = {
       __meta: {
         rowNum: startRow + index,
         colLength: headers.length,
       },
     };
 
-    // Map values to header names
+    // Map values back to header names
     headers.forEach((header, colIndex) => {
       rowObj[header] = row[colIndex];
     });
 
-    return rowObj;
+    return rowObj as GQueryRow<T>;
   });
 
   return {

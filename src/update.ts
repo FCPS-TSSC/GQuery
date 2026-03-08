@@ -1,14 +1,47 @@
 import { GQueryTableFactory } from "./index";
 import { callHandler } from "./ratelimit";
-import { GQueryResult, GQueryRow } from "./types";
+import {
+  GQueryResult,
+  GQueryRow,
+  GQuerySchemaError,
+  StandardSchemaV1,
+} from "./types";
 import { fetchSheetData } from "./utils";
 
-export function updateInternal(
-  gQueryTableFactory: GQueryTableFactory,
-  updateFn: (row: Record<string, any>) => Record<string, any>
-): GQueryResult {
+/**
+ * Validate a single row through a Standard Schema, preserving __meta.
+ * Throws GQuerySchemaError if validation fails.
+ */
+function applySchema<T>(
+  schema: StandardSchemaV1<unknown, T>,
+  row: GQueryRow,
+): GQueryRow<T> {
+  const { __meta, ...data } = row;
+  const result = schema["~standard"].validate(data);
+
+  if (result instanceof Promise) {
+    throw new Error(
+      "GQuery does not support async schema validation. " +
+        "Google Apps Script is a synchronous runtime.",
+    );
+  }
+
+  if (result.issues) {
+    throw new GQuerySchemaError(result.issues, data);
+  }
+
+  return { ...(result.value as object), __meta } as GQueryRow<T>;
+}
+
+export function updateInternal<
+  T extends Record<string, any> = Record<string, any>,
+>(
+  gQueryTableFactory: GQueryTableFactory<T>,
+  updateFn: (row: GQueryRow<T>) => Partial<T>,
+): GQueryResult<T> {
   const spreadsheetId = gQueryTableFactory.gQueryTable.spreadsheetId;
   const sheetName = gQueryTableFactory.gQueryTable.sheetName;
+  const schema = gQueryTableFactory.gQueryTable.schema;
   const range = sheetName;
 
   const { headers, rows } = fetchSheetData(spreadsheetId, range);
@@ -33,7 +66,7 @@ export function updateInternal(
   const updatedRows: GQueryRow[] = filteredRows.map((row) => {
     const updatedRow: GQueryRow = { ...row };
     try {
-      const result = updateFn(updatedRow);
+      const result = updateFn(updatedRow as GQueryRow<T>);
       if (result && typeof result === "object") {
         Object.assign(updatedRow, result);
       }
@@ -85,12 +118,20 @@ export function updateInternal(
     };
 
     callHandler(() =>
-      Sheets.Spreadsheets!.Values!.batchUpdate(batchUpdateRequest, spreadsheetId)
+      Sheets.Spreadsheets!.Values!.batchUpdate(
+        batchUpdateRequest,
+        spreadsheetId,
+      ),
     );
   }
 
+  // Apply schema validation if a schema is attached
+  const typedRows: GQueryRow<T>[] = schema
+    ? updatedRows.map((row) => applySchema(schema, row))
+    : (updatedRows as unknown as GQueryRow<T>[]);
+
   return {
-    rows: filteredRows.length > 0 ? updatedRows : [],
+    rows: filteredRows.length > 0 ? typedRows : [],
     headers,
   };
 }
@@ -115,7 +156,7 @@ function getColumnLetter(columnIndex: number): string {
  * into contiguous row segments.
  */
 function optimizeRanges(
-  changedCells: Map<string, any[]>
+  changedCells: Map<string, any[]>,
 ): { range: string; values: any[][] }[] {
   const columnGroups = new Map<string, Map<number, any>>();
 

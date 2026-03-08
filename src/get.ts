@@ -3,11 +3,54 @@ import { callHandler } from "./ratelimit";
 import {
   GQueryReadOptions,
   GQueryResult,
+  GQueryRow,
+  GQuerySchemaError,
+  StandardSchemaV1,
   ValueRenderOption,
   DateTimeRenderOption,
-  GQueryRow,
 } from "./types";
 import { parseRows } from "./utils";
+
+/**
+ * Validate a single row through a Standard Schema.
+ * Throws GQuerySchemaError if validation fails.
+ * Throws a plain Error if the schema returns a Promise (async schemas are not
+ * supported in Google Apps Script).
+ */
+function applySchema<T>(
+  schema: StandardSchemaV1<unknown, T>,
+  row: Record<string, any>,
+): T {
+  const result = schema["~standard"].validate(row);
+
+  if (result instanceof Promise) {
+    throw new Error(
+      "GQuery does not support async schema validation. " +
+        "Google Apps Script is a synchronous runtime. " +
+        "Use a schema library that validates synchronously (e.g. Zod, Valibot).",
+    );
+  }
+
+  if (result.issues) {
+    throw new GQuerySchemaError(result.issues, row);
+  }
+
+  return result.value;
+}
+
+/**
+ * Apply a schema to an array of raw rows, returning typed rows with __meta preserved.
+ */
+function applySchemaToRows<T>(
+  schema: StandardSchemaV1<unknown, T>,
+  rows: GQueryRow[],
+): GQueryRow<T>[] {
+  return rows.map((row) => {
+    const { __meta, ...data } = row;
+    const validated = applySchema(schema, data);
+    return { ...(validated as object), __meta } as GQueryRow<T>;
+  });
+}
 
 /**
  * Convert row values to appropriate types (boolean, date, number)
@@ -15,28 +58,30 @@ import { parseRows } from "./utils";
  */
 function convertRowTypes(row: GQueryRow, headers: string[]): GQueryRow {
   const newRow: GQueryRow = { __meta: row.__meta };
-  
+
   headers.forEach((header) => {
     let value = row[header];
-    
+
     // Skip empty values
     if (value === undefined || value === null || value === "") {
       newRow[header] = value;
       return;
     }
-    
+
     // Only process string values for type conversion
     if (typeof value === "string") {
       const lowerValue = value.toLowerCase();
-      
+
       // Check for boolean
       if (lowerValue === "true" || lowerValue === "false") {
         newRow[header] = lowerValue === "true";
         return;
       }
-      
+
       // Check for date pattern (MM/DD/YYYY or MM/DD/YYYY HH:MM:SS)
-      if (/^\d{1,2}\/\d{1,2}\/\d{4}(\s\d{1,2}:\d{1,2}(:\d{1,2})?)?$/.test(value)) {
+      if (
+        /^\d{1,2}\/\d{1,2}\/\d{4}(\s\d{1,2}:\d{1,2}(:\d{1,2})?)?$/.test(value)
+      ) {
         const dateValue = new Date(value);
         if (!isNaN(dateValue.getTime())) {
           newRow[header] = dateValue;
@@ -44,18 +89,18 @@ function convertRowTypes(row: GQueryRow, headers: string[]): GQueryRow {
         }
       }
     }
-    
+
     // Keep original value if no conversion applied
     newRow[header] = value;
   });
-  
+
   return newRow;
 }
 
 export function getManyInternal(
   gquery: GQuery,
   sheetNames: string[],
-  options?: GQueryReadOptions
+  options?: GQueryReadOptions,
 ): {
   [sheetName: string]: GQueryResult;
 } {
@@ -76,7 +121,7 @@ export function getManyInternal(
       ranges: sheetNames,
       valueRenderOption,
       dateTimeRenderOption,
-    })
+    }),
   );
 
   if (!dataResponse || !dataResponse.valueRanges) {
@@ -106,10 +151,12 @@ export function getManyInternal(
   return result;
 }
 
-export function getInternal(
-  gqueryTableFactory: GQueryTableFactory,
-  options?: GQueryReadOptions
-): GQueryResult {
+export function getInternal<
+  T extends Record<string, any> = Record<string, any>,
+>(
+  gqueryTableFactory: GQueryTableFactory<T>,
+  options?: GQueryReadOptions,
+): GQueryResult<T> {
   const gqueryTable = gqueryTableFactory.gQueryTable;
   const gquery = gqueryTable.gquery;
   // Determine which sheets we need to read from
@@ -182,7 +229,7 @@ export function getInternal(
           const columnsToInclude =
             columnsToReturn ||
             Object.keys(joinRow).filter(
-              (key) => key !== "__meta" && key !== sheetColumn
+              (key) => key !== "__meta" && key !== sheetColumn,
             );
 
           columnsToInclude.forEach((key) => {
@@ -234,8 +281,8 @@ export function getInternal(
           header === "Model" ||
           header === "Model_Name" ||
           gqueryTableFactory.joinOption.some(
-            (j) => j.joinColumn === header || j.sheetColumn === header
-          )
+            (j) => j.joinColumn === header || j.sheetColumn === header,
+          ),
       )
     ) {
       // Include all join-related columns and the selected columns
@@ -266,35 +313,46 @@ export function getInternal(
       return selectedRow;
     });
 
-    // Update headers to include both selected and joined columns
+    // Apply schema validation if requested
+    const typedRows =
+      gqueryTable.schema && options?.validate
+        ? applySchemaToRows(gqueryTable.schema, rows)
+        : (rows as unknown as GQueryRow<T>[]);
+
     return {
       headers: selectedHeaders,
-      rows,
+      rows: typedRows,
     };
   }
 
+  // Apply schema validation if requested
+  const typedRows =
+    gqueryTable.schema && options?.validate
+      ? applySchemaToRows(gqueryTable.schema, rows)
+      : (rows as unknown as GQueryRow<T>[]);
+
   return {
     headers,
-    rows,
+    rows: typedRows,
   };
 }
 
 export function queryInternal(
   gqueryTable: GQueryTable,
-  query: string
+  query: string,
 ): GQueryResult {
   const sheet = gqueryTable.sheet;
   const range = sheet.getDataRange();
-  
+
   // Build column name to letter mapping
   let replaced = query;
   const lastColumn = range.getLastColumn();
-  
+
   for (let i = 0; i < lastColumn; i++) {
     const rng = sheet.getRange(1, i + 1);
     const name = rng.getValue();
     const letter = rng.getA1Notation().match(/([A-Z]+)/)?.[0];
-    
+
     if (letter && name) {
       replaced = replaced.replaceAll(name, letter);
     }
@@ -306,7 +364,7 @@ export function queryInternal(
     sheet.getParent().getId(),
     encodeURIComponent(replaced),
     sheet.getName(),
-    typeof range === "string" ? "&range=" + range : ""
+    typeof range === "string" ? "&range=" + range : "",
   );
 
   // Fetch with authorization
@@ -321,9 +379,9 @@ export function queryInternal(
     response
       .getContentText()
       .replace("/*O_o*/\n", "")
-      .replace(/(google\.visualization\.Query\.setResponse\()|(\);)/gm, "")
+      .replace(/(google\.visualization\.Query\.setResponse\()|(\);)/gm, ""),
   );
-  
+
   const table = jsonResponse.table;
 
   // Extract column headers
@@ -342,23 +400,26 @@ export function queryInternal(
     table.cols.forEach((col: any, colIndex: number) => {
       const cellData = row.c[colIndex];
       let value: any = "";
-      
+
       if (cellData) {
         // Use formatted value if available, otherwise use raw value
-        value = cellData.f !== null && cellData.f !== undefined
-          ? cellData.f
-          : cellData.v;
+        value =
+          cellData.f !== null && cellData.f !== undefined
+            ? cellData.f
+            : cellData.v;
 
         // Convert date strings if needed
-        if (typeof value === "string" && 
-            /^\d{1,2}\/\d{1,2}\/\d{4}(\s\d{1,2}:\d{1,2}(:\d{1,2})?)?$/.test(value)) {
+        if (
+          typeof value === "string" &&
+          /^\d{1,2}\/\d{1,2}\/\d{4}(\s\d{1,2}:\d{1,2}(:\d{1,2})?)?$/.test(value)
+        ) {
           const dateValue = new Date(value);
           if (!isNaN(dateValue.getTime())) {
             value = dateValue;
           }
         }
       }
-      
+
       rowObj[col.label] = value;
     });
 

@@ -2,7 +2,13 @@ import { getInternal, getManyInternal, queryInternal } from "./get";
 import { updateInternal } from "./update";
 import { appendInternal } from "./append";
 import { deleteInternal } from "./delete";
-import { GQueryReadOptions, GQueryResult } from "./types";
+import {
+  GQueryReadOptions,
+  GQueryResult,
+  GQueryRow,
+  InferSchema,
+  StandardSchemaV1,
+} from "./types";
 
 export * from "./types";
 
@@ -24,16 +30,49 @@ export class GQuery {
   }
 
   /**
-   * Get a table reference for a specific sheet
+   * Get a typed table reference for a specific sheet using a Standard Schema.
+   * The schema's output type flows through all subsequent operations.
+   * Pass `validate: true` to `get()` / `update()` / `append()` to enable runtime validation.
+   *
+   * @example
+   * const schema = z.object({ Name: z.string(), Age: z.number() });
+   * const result = gq.from("People", schema).get(); // GQueryResult<{ Name: string; Age: number }>
+   *
    * @param sheetName Name of the sheet
-   * @returns GQueryTable instance for chaining operations
+   * @param schema A Standard Schema V1 compatible schema (Zod, Valibot, ArkType, etc.)
    */
-  from(sheetName: string): GQueryTable {
-    return new GQueryTable(this, this.spreadsheetId, sheetName);
+  from<S extends StandardSchemaV1>(
+    sheetName: string,
+    schema: S,
+  ): GQueryTable<InferSchema<S> & Record<string, any>>;
+
+  /**
+   * Get a table reference for a specific sheet with an explicit type parameter.
+   * No runtime validation — the type parameter is a compile-time assertion only.
+   *
+   * @example
+   * const result = gq.from<MyRowType>("Sheet1").get(); // GQueryResult<MyRowType>
+   *
+   * @param sheetName Name of the sheet
+   */
+  from<T extends Record<string, any> = Record<string, any>>(sheetName: string): GQueryTable<T>;
+
+  from<T extends Record<string, any> = Record<string, any>>(
+    sheetName: string,
+    schema?: StandardSchemaV1,
+  ): GQueryTable<T> {
+    return new GQueryTable<T>(
+      this,
+      this.spreadsheetId,
+      sheetName,
+      schema as StandardSchemaV1<unknown, T> | undefined,
+    );
   }
 
   /**
-   * Efficiently fetch data from multiple sheets at once
+   * Efficiently fetch data from multiple sheets at once.
+   * For typed results per-sheet, use `from()` individually.
+   *
    * @param sheetNames Array of sheet names to fetch
    * @param options Optional rendering options
    * @returns Object mapping sheet names to their data
@@ -49,21 +88,30 @@ export class GQuery {
 }
 
 /**
- * Represents a single sheet table for query operations
+ * Represents a single sheet table for query operations.
+ * @typeParam T - The shape of each data row. Inferred from a Standard Schema if provided.
  */
-export class GQueryTable {
+export class GQueryTable<T extends Record<string, any> = Record<string, any>> {
   gquery: GQuery;
   spreadsheetId: string;
   spreadsheet: GoogleAppsScript.Spreadsheet.Spreadsheet;
   sheetName: string;
   sheet: GoogleAppsScript.Spreadsheet.Sheet;
+  /** The Standard Schema used for type inference and optional runtime validation */
+  schema?: StandardSchemaV1<unknown, T>;
 
-  constructor(gquery: GQuery, spreadsheetId: string, sheetName: string) {
+  constructor(
+    gquery: GQuery,
+    spreadsheetId: string,
+    sheetName: string,
+    schema?: StandardSchemaV1<unknown, T>,
+  ) {
     this.spreadsheetId = spreadsheetId;
     this.sheetName = sheetName;
     this.spreadsheet = SpreadsheetApp.openById(spreadsheetId);
     this.sheet = this.spreadsheet.getSheetByName(sheetName)!;
     this.gquery = gquery;
+    this.schema = schema;
   }
 
   /**
@@ -71,21 +119,23 @@ export class GQueryTable {
    * @param headers Array of column names to select
    * @returns GQueryTableFactory for chaining
    */
-  select(headers: string[]): GQueryTableFactory {
-    return new GQueryTableFactory(this).select(headers);
+  select(headers: string[]): GQueryTableFactory<T> {
+    return new GQueryTableFactory<T>(this).select(headers);
   }
 
   /**
    * Filter rows based on a condition
-   * @param filterFn Function that returns true for rows to include
+   * @param filterFn Function that receives a typed row and returns true for rows to include
    * @returns GQueryTableFactory for chaining
    */
-  where(filterFn: (row: any) => boolean): GQueryTableFactory {
-    return new GQueryTableFactory(this).where(filterFn);
+  where(filterFn: (row: GQueryRow<T>) => boolean): GQueryTableFactory<T> {
+    return new GQueryTableFactory<T>(this).where(filterFn);
   }
 
   /**
-   * Join with another sheet
+   * Join with another sheet.
+   * Note: joined columns are typed as additional `any` fields alongside T.
+   *
    * @param sheetName Name of sheet to join with
    * @param sheetColumn Column in the joined sheet to match on
    * @param joinColumn Column in this sheet to match on
@@ -97,8 +147,8 @@ export class GQueryTable {
     sheetColumn: string,
     joinColumn: string,
     columnsToReturn?: string[],
-  ): GQueryTableFactory {
-    return new GQueryTableFactory(this).join(
+  ): GQueryTableFactory<T> {
+    return new GQueryTableFactory<T>(this).join(
       sheetName,
       sheetColumn,
       joinColumn,
@@ -108,34 +158,38 @@ export class GQueryTable {
 
   /**
    * Update rows in the sheet
-   * @param updateFn Function that receives a row and returns updated values
+   * @param updateFn Function that receives a typed row and returns updated values
    * @returns GQueryResult with updated rows
    */
   update(
-    updateFn: (row: Record<string, any>) => Record<string, any>,
-  ): GQueryResult {
-    return new GQueryTableFactory(this).update(updateFn);
+    updateFn: (row: GQueryRow<T>) => Partial<T>,
+  ): GQueryResult<T> {
+    return new GQueryTableFactory<T>(this).update(updateFn);
   }
 
   /**
-   * Append new rows to the sheet
+   * Append new rows to the sheet.
+   * If a schema is attached, input data is validated before writing (when validate is true).
+   *
    * @param data Single object or array of objects to append
+   * @param options Optional rendering options (set validate: true to run schema validation)
    * @returns GQueryResult with appended rows
    */
   append(
-    data: { [key: string]: any }[] | { [key: string]: any },
-  ): GQueryResult {
+    data: T | T[],
+    options?: Pick<GQueryReadOptions, "validate">,
+  ): GQueryResult<T> {
     const dataArray = Array.isArray(data) ? data : [data];
-    return appendInternal(this, dataArray);
+    return appendInternal<T>(this, dataArray, options);
   }
 
   /**
    * Get data from the sheet
-   * @param options Optional rendering options
-   * @returns GQueryResult with rows and headers
+   * @param options Optional rendering and validation options
+   * @returns GQueryResult with rows typed to T
    */
-  get(options?: GQueryReadOptions): GQueryResult {
-    return new GQueryTableFactory(this).get(options);
+  get(options?: GQueryReadOptions): GQueryResult<T> {
+    return new GQueryTableFactory<T>(this).get(options);
   }
 
   /**
@@ -152,16 +206,18 @@ export class GQueryTable {
    * @returns Object with count of deleted rows
    */
   delete(): { deletedRows: number } {
-    return new GQueryTableFactory(this).delete();
+    return new GQueryTableFactory<T>(this).delete();
   }
 }
 
 /**
- * Factory class for building and executing queries with filters and joins
+ * Factory class for building and executing queries with filters and joins.
+ * @typeParam T - The shape of each data row, inherited from GQueryTable<T>.
  */
-export class GQueryTableFactory {
-  gQueryTable: GQueryTable;
+export class GQueryTableFactory<T extends Record<string, any> = Record<string, any>> {
+  gQueryTable: GQueryTable<T>;
   selectOption?: string[];
+  /** Stored as (row: any) => boolean to avoid friction with raw parsed rows internally */
   filterOption?: (row: any) => boolean;
   joinOption: {
     sheetName: string;
@@ -170,16 +226,16 @@ export class GQueryTableFactory {
     columnsToReturn?: string[];
   }[] = [];
 
-  constructor(GQueryTable: GQueryTable) {
-    this.gQueryTable = GQueryTable;
+  constructor(gQueryTable: GQueryTable<T>) {
+    this.gQueryTable = gQueryTable;
   }
 
-  select(headers: string[]): GQueryTableFactory {
+  select(headers: string[]): GQueryTableFactory<T> {
     this.selectOption = headers;
     return this;
   }
 
-  where(filterFn: (row: any) => boolean): GQueryTableFactory {
+  where(filterFn: (row: GQueryRow<T>) => boolean): GQueryTableFactory<T> {
     this.filterOption = filterFn;
     return this;
   }
@@ -189,7 +245,7 @@ export class GQueryTableFactory {
     sheetColumn: string,
     joinColumn: string,
     columnsToReturn?: string[],
-  ): GQueryTableFactory {
+  ): GQueryTableFactory<T> {
     this.joinOption.push({
       sheetName,
       sheetColumn,
@@ -199,21 +255,22 @@ export class GQueryTableFactory {
     return this;
   }
 
-  get(options?: GQueryReadOptions): GQueryResult {
-    return getInternal(this, options);
+  get(options?: GQueryReadOptions): GQueryResult<T> {
+    return getInternal<T>(this, options);
   }
 
   update(
-    updateFn: (row: Record<string, any>) => Record<string, any>,
-  ): GQueryResult {
-    return updateInternal(this, updateFn);
+    updateFn: (row: GQueryRow<T>) => Partial<T>,
+  ): GQueryResult<T> {
+    return updateInternal<T>(this, updateFn);
   }
 
   append(
-    data: { [key: string]: any }[] | { [key: string]: any },
-  ): GQueryResult {
+    data: T | T[],
+    options?: Pick<GQueryReadOptions, "validate">,
+  ): GQueryResult<T> {
     const dataArray = Array.isArray(data) ? data : [data];
-    return appendInternal(this.gQueryTable, dataArray);
+    return appendInternal<T>(this.gQueryTable, dataArray, options);
   }
 
   delete(): { deletedRows: number } {

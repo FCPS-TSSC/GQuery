@@ -2,7 +2,7 @@ import { GQueryTableFactory } from "./index";
 import { callHandler } from "./ratelimit";
 import { fetchSheetData } from "./utils";
 
-export function deleteInternal(gqueryTableFactory: GQueryTableFactory): {
+export function deleteInternal(gqueryTableFactory: GQueryTableFactory<any>): {
   deletedRows: number;
 } {
   const spreadsheetId = gqueryTableFactory.gQueryTable.spreadsheetId;

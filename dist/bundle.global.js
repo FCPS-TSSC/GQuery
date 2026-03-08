@@ -5,10 +5,10 @@ var GQuery = (function (exports) {
      * Exponential backoff handler for Google Sheets API calls
      * Handles rate limiting (429) and quota exceeded errors
      * @param fn Function to execute with retry logic
-     * @param retries Maximum number of retry attempts (default: 16)
+     * @param retries Maximum number of retry attempts (default: 20)
      * @returns Result of the function execution
      */
-    function callHandler(fn, retries = 16) {
+    function callHandler(fn, retries = 20) {
         let attempt = 0;
         while (attempt < retries) {
             try {
@@ -63,6 +63,17 @@ var GQuery = (function (exports) {
         /** Dates and times will be rendered as serial numbers */
         DateTimeRenderOption["SERIAL_NUMBER"] = "SERIAL_NUMBER";
     })(exports.DateTimeRenderOption || (exports.DateTimeRenderOption = {}));
+    /**
+     * Thrown when a row fails schema validation.
+     */
+    class GQuerySchemaError extends Error {
+        constructor(issues, row) {
+            super(`GQuery schema validation failed: ${issues.map((i) => i.message).join("; ")}`);
+            this.issues = issues;
+            this.row = row;
+            this.name = "GQuerySchemaError";
+        }
+    }
 
     /**
      * Parse raw sheet values into GQueryRow objects with metadata
@@ -101,6 +112,34 @@ var GQuery = (function (exports) {
         return { headers, rows };
     }
 
+    /**
+     * Validate a single row through a Standard Schema.
+     * Throws GQuerySchemaError if validation fails.
+     * Throws a plain Error if the schema returns a Promise (async schemas are not
+     * supported in Google Apps Script).
+     */
+    function applySchema$2(schema, row) {
+        const result = schema["~standard"].validate(row);
+        if (result instanceof Promise) {
+            throw new Error("GQuery does not support async schema validation. " +
+                "Google Apps Script is a synchronous runtime. " +
+                "Use a schema library that validates synchronously (e.g. Zod, Valibot).");
+        }
+        if (result.issues) {
+            throw new GQuerySchemaError(result.issues, row);
+        }
+        return result.value;
+    }
+    /**
+     * Apply a schema to an array of raw rows, returning typed rows with __meta preserved.
+     */
+    function applySchemaToRows(schema, rows) {
+        return rows.map((row) => {
+            const { __meta, ...data } = row;
+            const validated = applySchema$2(schema, data);
+            return { ...validated, __meta };
+        });
+    }
     /**
      * Convert row values to appropriate types (boolean, date, number)
      * Optimized to reduce redundant type checking
@@ -287,15 +326,22 @@ var GQuery = (function (exports) {
                 });
                 return selectedRow;
             });
-            // Update headers to include both selected and joined columns
+            // Apply schema validation if requested
+            const typedRows = gqueryTable.schema && (options === null || options === void 0 ? void 0 : options.validate)
+                ? applySchemaToRows(gqueryTable.schema, rows)
+                : rows;
             return {
                 headers: selectedHeaders,
-                rows,
+                rows: typedRows,
             };
         }
+        // Apply schema validation if requested
+        const typedRows = gqueryTable.schema && (options === null || options === void 0 ? void 0 : options.validate)
+            ? applySchemaToRows(gqueryTable.schema, rows)
+            : rows;
         return {
             headers,
-            rows,
+            rows: typedRows,
         };
     }
     function queryInternal(gqueryTable, query) {
@@ -343,9 +389,10 @@ var GQuery = (function (exports) {
                 let value = "";
                 if (cellData) {
                     // Use formatted value if available, otherwise use raw value
-                    value = cellData.f !== null && cellData.f !== undefined
-                        ? cellData.f
-                        : cellData.v;
+                    value =
+                        cellData.f !== null && cellData.f !== undefined
+                            ? cellData.f
+                            : cellData.v;
                     // Convert date strings if needed
                     if (typeof value === "string" &&
                         /^\d{1,2}\/\d{1,2}\/\d{4}(\s\d{1,2}:\d{1,2}(:\d{1,2})?)?$/.test(value)) {
@@ -365,9 +412,26 @@ var GQuery = (function (exports) {
         };
     }
 
+    /**
+     * Validate a single row through a Standard Schema, preserving __meta.
+     * Throws GQuerySchemaError if validation fails.
+     */
+    function applySchema$1(schema, row) {
+        const { __meta, ...data } = row;
+        const result = schema["~standard"].validate(data);
+        if (result instanceof Promise) {
+            throw new Error("GQuery does not support async schema validation. " +
+                "Google Apps Script is a synchronous runtime.");
+        }
+        if (result.issues) {
+            throw new GQuerySchemaError(result.issues, data);
+        }
+        return { ...result.value, __meta };
+    }
     function updateInternal(gQueryTableFactory, updateFn) {
         const spreadsheetId = gQueryTableFactory.gQueryTable.spreadsheetId;
         const sheetName = gQueryTableFactory.gQueryTable.sheetName;
+        const schema = gQueryTableFactory.gQueryTable.schema;
         const range = sheetName;
         const { headers, rows } = fetchSheetData(spreadsheetId, range);
         if (headers.length === 0) {
@@ -436,8 +500,12 @@ var GQuery = (function (exports) {
             };
             callHandler(() => Sheets.Spreadsheets.Values.batchUpdate(batchUpdateRequest, spreadsheetId));
         }
+        // Apply schema validation if a schema is attached
+        const typedRows = schema
+            ? updatedRows.map((row) => applySchema$1(schema, row))
+            : updatedRows;
         return {
-            rows: filteredRows.length > 0 ? updatedRows : [],
+            rows: filteredRows.length > 0 ? typedRows : [],
             headers,
         };
     }
@@ -505,13 +573,33 @@ var GQuery = (function (exports) {
         return optimizedUpdates;
     }
 
-    function appendInternal(table, data) {
+    /**
+     * Validate a single value through a Standard Schema.
+     * Throws GQuerySchemaError if validation fails.
+     */
+    function applySchema(schema, value) {
+        const result = schema["~standard"].validate(value);
+        if (result instanceof Promise) {
+            throw new Error("GQuery does not support async schema validation. " +
+                "Google Apps Script is a synchronous runtime.");
+        }
+        if (result.issues) {
+            throw new GQuerySchemaError(result.issues, value);
+        }
+        return result.value;
+    }
+    function appendInternal(table, data, options) {
         // Validate input data
         if (!data || data.length === 0) {
             return { rows: [], headers: [] };
         }
         const spreadsheetId = table.spreadsheetId;
         const sheetName = table.sheetName;
+        const schema = table.schema;
+        // Validate each item through the schema before writing, if requested
+        const validatedData = schema && (options === null || options === void 0 ? void 0 : options.validate)
+            ? data.map((item) => applySchema(schema, item))
+            : data;
         // Fetch headers from the first row
         const response = callHandler(() => Sheets.Spreadsheets.Values.get(spreadsheetId, `${sheetName}!1:1`));
         // Validate sheet exists and has headers
@@ -520,9 +608,10 @@ var GQuery = (function (exports) {
         }
         const headers = response.values[0].map((header) => String(header));
         // Map data to rows according to header order
-        const rowsToAppend = data.map((item) => {
+        const rowsToAppend = validatedData.map((item) => {
+            const record = item;
             return headers.map((header) => {
-                let value = item[header];
+                let value = record[header];
                 // Convert Date objects to locale strings
                 if (value instanceof Date) {
                     value = value.toLocaleString();
@@ -558,7 +647,7 @@ var GQuery = (function (exports) {
         if (actualRowCount !== expectedRowCount) {
             console.warn(`Expected to append ${expectedRowCount} rows but ${actualRowCount} were appended`);
         }
-        // Create result rows with metadata
+        // Create result rows with metadata, typed to T
         const resultRows = rowsToAppend.map((row, index) => {
             const rowObj = {
                 __meta: {
@@ -566,7 +655,7 @@ var GQuery = (function (exports) {
                     colLength: headers.length,
                 },
             };
-            // Map values to header names
+            // Map values back to header names
             headers.forEach((header, colIndex) => {
                 rowObj[header] = row[colIndex];
             });
@@ -641,16 +730,13 @@ var GQuery = (function (exports) {
                 ? spreadsheetId
                 : SpreadsheetApp.getActiveSpreadsheet().getId();
         }
-        /**
-         * Get a table reference for a specific sheet
-         * @param sheetName Name of the sheet
-         * @returns GQueryTable instance for chaining operations
-         */
-        from(sheetName) {
-            return new GQueryTable(this, this.spreadsheetId, sheetName);
+        from(sheetName, schema) {
+            return new GQueryTable(this, this.spreadsheetId, sheetName, schema);
         }
         /**
-         * Efficiently fetch data from multiple sheets at once
+         * Efficiently fetch data from multiple sheets at once.
+         * For typed results per-sheet, use `from()` individually.
+         *
          * @param sheetNames Array of sheet names to fetch
          * @param options Optional rendering options
          * @returns Object mapping sheet names to their data
@@ -660,15 +746,17 @@ var GQuery = (function (exports) {
         }
     }
     /**
-     * Represents a single sheet table for query operations
+     * Represents a single sheet table for query operations.
+     * @typeParam T - The shape of each data row. Inferred from a Standard Schema if provided.
      */
     class GQueryTable {
-        constructor(gquery, spreadsheetId, sheetName) {
+        constructor(gquery, spreadsheetId, sheetName, schema) {
             this.spreadsheetId = spreadsheetId;
             this.sheetName = sheetName;
             this.spreadsheet = SpreadsheetApp.openById(spreadsheetId);
             this.sheet = this.spreadsheet.getSheetByName(sheetName);
             this.gquery = gquery;
+            this.schema = schema;
         }
         /**
          * Select specific columns to return
@@ -680,14 +768,16 @@ var GQuery = (function (exports) {
         }
         /**
          * Filter rows based on a condition
-         * @param filterFn Function that returns true for rows to include
+         * @param filterFn Function that receives a typed row and returns true for rows to include
          * @returns GQueryTableFactory for chaining
          */
         where(filterFn) {
             return new GQueryTableFactory(this).where(filterFn);
         }
         /**
-         * Join with another sheet
+         * Join with another sheet.
+         * Note: joined columns are typed as additional `any` fields alongside T.
+         *
          * @param sheetName Name of sheet to join with
          * @param sheetColumn Column in the joined sheet to match on
          * @param joinColumn Column in this sheet to match on
@@ -699,25 +789,28 @@ var GQuery = (function (exports) {
         }
         /**
          * Update rows in the sheet
-         * @param updateFn Function that receives a row and returns updated values
+         * @param updateFn Function that receives a typed row and returns updated values
          * @returns GQueryResult with updated rows
          */
         update(updateFn) {
             return new GQueryTableFactory(this).update(updateFn);
         }
         /**
-         * Append new rows to the sheet
+         * Append new rows to the sheet.
+         * If a schema is attached, input data is validated before writing (when validate is true).
+         *
          * @param data Single object or array of objects to append
+         * @param options Optional rendering options (set validate: true to run schema validation)
          * @returns GQueryResult with appended rows
          */
-        append(data) {
+        append(data, options) {
             const dataArray = Array.isArray(data) ? data : [data];
-            return appendInternal(this, dataArray);
+            return appendInternal(this, dataArray, options);
         }
         /**
          * Get data from the sheet
-         * @param options Optional rendering options
-         * @returns GQueryResult with rows and headers
+         * @param options Optional rendering and validation options
+         * @returns GQueryResult with rows typed to T
          */
         get(options) {
             return new GQueryTableFactory(this).get(options);
@@ -739,12 +832,13 @@ var GQuery = (function (exports) {
         }
     }
     /**
-     * Factory class for building and executing queries with filters and joins
+     * Factory class for building and executing queries with filters and joins.
+     * @typeParam T - The shape of each data row, inherited from GQueryTable<T>.
      */
     class GQueryTableFactory {
-        constructor(GQueryTable) {
+        constructor(gQueryTable) {
             this.joinOption = [];
-            this.gQueryTable = GQueryTable;
+            this.gQueryTable = gQueryTable;
         }
         select(headers) {
             this.selectOption = headers;
@@ -769,9 +863,9 @@ var GQuery = (function (exports) {
         update(updateFn) {
             return updateInternal(this, updateFn);
         }
-        append(data) {
+        append(data, options) {
             const dataArray = Array.isArray(data) ? data : [data];
-            return appendInternal(this.gQueryTable, dataArray);
+            return appendInternal(this.gQueryTable, dataArray, options);
         }
         delete() {
             return deleteInternal(this);
@@ -779,6 +873,7 @@ var GQuery = (function (exports) {
     }
 
     exports.GQuery = GQuery;
+    exports.GQuerySchemaError = GQuerySchemaError;
     exports.GQueryTable = GQueryTable;
     exports.GQueryTableFactory = GQueryTableFactory;
 
