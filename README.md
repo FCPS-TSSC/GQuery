@@ -32,8 +32,9 @@ To use GQuery, you must first enable the Google Sheets API in your Apps Script p
 
 If you use a build toolchain in your Apps Script project, like Rollup or Vite, this is the preferred installation method.
 
-- To install via the command line: `npm install @FCPS-TSSC/gquery@1.4.0`
-- To add in your `package.json` dependencies: `"@FCPS-TSSC/gquery": "1.4.0"`
+- First, create a file called `.npmrc` in the same directory as your package.json and add `@FCPS-TSSC:registry=https://npm.pkg.github.com`
+- To install via the command line: `npm install @FCPS-TSSC/gquery@1.4.1`
+- To add in your `package.json` dependencies: `"@FCPS-TSSC/gquery": "1.4.1"`
 
 You'll call the GQuery class via `new GQuery()`
 
