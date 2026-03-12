@@ -55,7 +55,9 @@ export class GQuery {
    *
    * @param sheetName Name of the sheet
    */
-  from<T extends Record<string, any> = Record<string, any>>(sheetName: string): GQueryTable<T>;
+  from<T extends Record<string, any> = Record<string, any>>(
+    sheetName: string,
+  ): GQueryTable<T>;
 
   from<T extends Record<string, any> = Record<string, any>>(
     sheetName: string,
@@ -92,7 +94,7 @@ export class GQuery {
  * @typeParam T - The shape of each data row. Inferred from a Standard Schema if provided.
  */
 export class GQueryTable<T extends Record<string, any> = Record<string, any>> {
-  gquery: GQuery;
+  GQuery: GQuery;
   spreadsheetId: string;
   spreadsheet: GoogleAppsScript.Spreadsheet.Spreadsheet;
   sheetName: string;
@@ -101,7 +103,7 @@ export class GQueryTable<T extends Record<string, any> = Record<string, any>> {
   schema?: StandardSchemaV1<unknown, T>;
 
   constructor(
-    gquery: GQuery,
+    GQuery: GQuery,
     spreadsheetId: string,
     sheetName: string,
     schema?: StandardSchemaV1<unknown, T>,
@@ -110,7 +112,7 @@ export class GQueryTable<T extends Record<string, any> = Record<string, any>> {
     this.sheetName = sheetName;
     this.spreadsheet = SpreadsheetApp.openById(spreadsheetId);
     this.sheet = this.spreadsheet.getSheetByName(sheetName)!;
-    this.gquery = gquery;
+    this.GQuery = GQuery;
     this.schema = schema;
   }
 
@@ -161,9 +163,7 @@ export class GQueryTable<T extends Record<string, any> = Record<string, any>> {
    * @param updateFn Function that receives a typed row and returns updated values
    * @returns GQueryResult with updated rows
    */
-  update(
-    updateFn: (row: GQueryRow<T>) => Partial<T>,
-  ): GQueryResult<T> {
+  update(updateFn: (row: GQueryRow<T>) => Partial<T>): GQueryResult<T> {
     return new GQueryTableFactory<T>(this).update(updateFn);
   }
 
@@ -214,8 +214,10 @@ export class GQueryTable<T extends Record<string, any> = Record<string, any>> {
  * Factory class for building and executing queries with filters and joins.
  * @typeParam T - The shape of each data row, inherited from GQueryTable<T>.
  */
-export class GQueryTableFactory<T extends Record<string, any> = Record<string, any>> {
-  gQueryTable: GQueryTable<T>;
+export class GQueryTableFactory<
+  T extends Record<string, any> = Record<string, any>,
+> {
+  GQueryTable: GQueryTable<T>;
   selectOption?: string[];
   /** Stored as (row: any) => boolean to avoid friction with raw parsed rows internally */
   filterOption?: (row: any) => boolean;
@@ -226,8 +228,8 @@ export class GQueryTableFactory<T extends Record<string, any> = Record<string, a
     columnsToReturn?: string[];
   }[] = [];
 
-  constructor(gQueryTable: GQueryTable<T>) {
-    this.gQueryTable = gQueryTable;
+  constructor(GQueryTable: GQueryTable<T>) {
+    this.GQueryTable = GQueryTable;
   }
 
   select(headers: string[]): GQueryTableFactory<T> {
@@ -259,9 +261,7 @@ export class GQueryTableFactory<T extends Record<string, any> = Record<string, a
     return getInternal<T>(this, options);
   }
 
-  update(
-    updateFn: (row: GQueryRow<T>) => Partial<T>,
-  ): GQueryResult<T> {
+  update(updateFn: (row: GQueryRow<T>) => Partial<T>): GQueryResult<T> {
     return updateInternal<T>(this, updateFn);
   }
 
@@ -270,7 +270,7 @@ export class GQueryTableFactory<T extends Record<string, any> = Record<string, a
     options?: Pick<GQueryReadOptions, "validate">,
   ): GQueryResult<T> {
     const dataArray = Array.isArray(data) ? data : [data];
-    return appendInternal<T>(this.gQueryTable, dataArray, options);
+    return appendInternal<T>(this.GQueryTable, dataArray, options);
   }
 
   delete(): { deletedRows: number } {

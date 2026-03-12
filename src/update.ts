@@ -36,12 +36,12 @@ function applySchema<T>(
 export function updateInternal<
   T extends Record<string, any> = Record<string, any>,
 >(
-  gQueryTableFactory: GQueryTableFactory<T>,
+  GQueryTableFactory: GQueryTableFactory<T>,
   updateFn: (row: GQueryRow<T>) => Partial<T>,
 ): GQueryResult<T> {
-  const spreadsheetId = gQueryTableFactory.gQueryTable.spreadsheetId;
-  const sheetName = gQueryTableFactory.gQueryTable.sheetName;
-  const schema = gQueryTableFactory.gQueryTable.schema;
+  const spreadsheetId = GQueryTableFactory.GQueryTable.spreadsheetId;
+  const sheetName = GQueryTableFactory.GQueryTable.sheetName;
+  const schema = GQueryTableFactory.GQueryTable.schema;
   const range = sheetName;
 
   const { headers, rows } = fetchSheetData(spreadsheetId, range);
@@ -51,10 +51,10 @@ export function updateInternal<
   }
 
   // Filter rows if filter is specified
-  const filteredRows = gQueryTableFactory.filterOption
+  const filteredRows = GQueryTableFactory.filterOption
     ? rows.filter((row) => {
         try {
-          return gQueryTableFactory.filterOption!(row);
+          return GQueryTableFactory.filterOption!(row);
         } catch (error) {
           console.error("Error filtering row:", error);
           return false;

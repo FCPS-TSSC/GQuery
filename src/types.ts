@@ -54,9 +54,8 @@ export declare namespace StandardSchemaV1 {
  * const schema = z.object({ name: z.string() });
  * type Row = InferSchema<typeof schema>; // { name: string }
  */
-export type InferSchema<S> = S extends StandardSchemaV1<any, infer O>
-  ? O
-  : Record<string, unknown>;
+export type InferSchema<S> =
+  S extends StandardSchemaV1<any, infer O> ? O : Record<string, unknown>;
 
 /**
  * Options for reading data from Google Sheets
@@ -133,9 +132,7 @@ export class GQuerySchemaError extends Error {
       `GQuery schema validation failed:\n${issues
         .map((i) => {
           const pathStr = i.path?.length
-            ? i.path
-                .map((p) => (typeof p === "object" ? p.key : p))
-                .join(".")
+            ? i.path.map((p) => (typeof p === "object" ? p.key : p)).join(".")
             : "(root)";
           return `  [${pathStr}] ${i.message}`;
         })

@@ -112,7 +112,7 @@ function convertRowTypes(row: GQueryRow, headers: string[]): GQueryRow {
 }
 
 export function getManyInternal(
-  gquery: GQuery,
+  GQuery: GQuery,
   sheetNames: string[],
   options?: GQueryReadOptions,
 ): {
@@ -131,7 +131,7 @@ export function getManyInternal(
 
   // Fetch data using batchGet for better performance
   const dataResponse = callHandler(() =>
-    Sheets.Spreadsheets!.Values!.batchGet(gquery.spreadsheetId, {
+    Sheets.Spreadsheets!.Values!.batchGet(GQuery.spreadsheetId, {
       ranges: sheetNames,
       valueRenderOption,
       dateTimeRenderOption,
@@ -168,17 +168,17 @@ export function getManyInternal(
 export function getInternal<
   T extends Record<string, any> = Record<string, any>,
 >(
-  gqueryTableFactory: GQueryTableFactory<T>,
+  GQueryTableFactory: GQueryTableFactory<T>,
   options?: GQueryReadOptions,
 ): GQueryResult<T> {
-  const gqueryTable = gqueryTableFactory.gQueryTable;
-  const gquery = gqueryTable.gquery;
+  const GQueryTable = GQueryTableFactory.GQueryTable;
+  const GQuery = GQueryTable.GQuery;
   // Determine which sheets we need to read from
-  const sheetsToRead = [gqueryTable.sheetName];
+  const sheetsToRead = [GQueryTable.sheetName];
 
   // Add all join sheets
-  if (gqueryTableFactory.joinOption.length > 0) {
-    gqueryTableFactory.joinOption.forEach((join) => {
+  if (GQueryTableFactory.joinOption.length > 0) {
+    GQueryTableFactory.joinOption.forEach((join) => {
       if (!sheetsToRead.includes(join.sheetName)) {
         sheetsToRead.push(join.sheetName);
       }
@@ -186,24 +186,24 @@ export function getInternal<
   }
 
   // Read data from all required sheets at once
-  const results = gquery.getMany(sheetsToRead, options);
+  const results = GQuery.getMany(sheetsToRead, options);
 
   // If the main sheet doesn't exist or has no data
   if (
-    !results[gqueryTable.sheetName] ||
-    results[gqueryTable.sheetName].rows.length === 0
+    !results[GQueryTable.sheetName] ||
+    results[GQueryTable.sheetName].rows.length === 0
   ) {
     return { headers: [], rows: [] };
   }
 
   // Get data for the primary table
-  let result = results[gqueryTable.sheetName];
+  let result = results[GQueryTable.sheetName];
   let rows = result.rows;
   let headers = result.headers;
 
   // Process each join sequentially
-  if (gqueryTableFactory.joinOption.length > 0) {
-    gqueryTableFactory.joinOption.forEach((joinConfig) => {
+  if (GQueryTableFactory.joinOption.length > 0) {
+    GQueryTableFactory.joinOption.forEach((joinConfig) => {
       const { sheetName, sheetColumn, joinColumn, columnsToReturn } =
         joinConfig;
 
@@ -262,14 +262,14 @@ export function getInternal<
   }
 
   // Apply filter if specified
-  if (gqueryTableFactory.filterOption) {
-    rows = rows.filter(gqueryTableFactory.filterOption);
+  if (GQueryTableFactory.filterOption) {
+    rows = rows.filter(GQueryTableFactory.filterOption);
   }
 
   // Apply select if specified
   if (
-    gqueryTableFactory.selectOption &&
-    gqueryTableFactory.selectOption.length > 0
+    GQueryTableFactory.selectOption &&
+    GQueryTableFactory.selectOption.length > 0
   ) {
     // Create a map to track columns from joined tables
     const joinedColumns = new Set<string>();
@@ -290,23 +290,23 @@ export function getInternal<
     // Check if any of the selected headers is "Model" or "Model_Name"
     // If we're selecting the join columns, we want to include all related joined fields
     if (
-      gqueryTableFactory.selectOption.some(
+      GQueryTableFactory.selectOption.some(
         (header) =>
           header === "Model" ||
           header === "Model_Name" ||
-          gqueryTableFactory.joinOption.some(
+          GQueryTableFactory.joinOption.some(
             (j) => j.joinColumn === header || j.sheetColumn === header,
           ),
       )
     ) {
       // Include all join-related columns and the selected columns
-      selectedHeaders = [...gqueryTableFactory.selectOption];
+      selectedHeaders = [...GQueryTableFactory.selectOption];
       joinedColumns.forEach((joinCol) => {
         selectedHeaders.push(joinCol);
       });
     } else {
       // Otherwise only include explicitly selected columns
-      selectedHeaders = [...gqueryTableFactory.selectOption];
+      selectedHeaders = [...GQueryTableFactory.selectOption];
     }
 
     // Remove duplicates
@@ -329,8 +329,8 @@ export function getInternal<
 
     // Apply schema validation if requested
     const typedRows =
-      gqueryTable.schema && options?.validate
-        ? applySchemaToRows(gqueryTable.schema, rows)
+      GQueryTable.schema && options?.validate
+        ? applySchemaToRows(GQueryTable.schema, rows)
         : (rows as unknown as GQueryRow<T>[]);
 
     return {
@@ -341,8 +341,8 @@ export function getInternal<
 
   // Apply schema validation if requested
   const typedRows =
-    gqueryTable.schema && options?.validate
-      ? applySchemaToRows(gqueryTable.schema, rows)
+    GQueryTable.schema && options?.validate
+      ? applySchemaToRows(GQueryTable.schema, rows)
       : (rows as unknown as GQueryRow<T>[]);
 
   return {
@@ -352,10 +352,10 @@ export function getInternal<
 }
 
 export function queryInternal(
-  gqueryTable: GQueryTable,
+  GQueryTable: GQueryTable,
   query: string,
 ): GQueryResult {
-  const sheet = gqueryTable.sheet;
+  const sheet = GQueryTable.sheet;
   const range = sheet.getDataRange();
 
   // Build column name to letter mapping

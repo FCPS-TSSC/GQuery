@@ -1,6 +1,6 @@
 {
-  "name": "@fcps-tssc/gquery",
-  "version": "1.5.1",
+  "name": "@imreallyliam/gquery",
+  "version": "1.5.2",
   "main": "dist/bundle.js",
   "types": "dist/bundle.d.ts",
   "source": "src/index.ts",
@@ -18,8 +18,5 @@
     "rollup-plugin-dts": "^6.2.1",
     "tslib": "^2.8.1"
   },
-  "type": "module",
-  "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
-  }
+  "type": "module"
 }

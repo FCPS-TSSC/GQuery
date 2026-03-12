@@ -2,25 +2,25 @@ import { GQueryTableFactory } from "./index";
 import { callHandler } from "./ratelimit";
 import { fetchSheetData } from "./utils";
 
-export function deleteInternal(gqueryTableFactory: GQueryTableFactory<any>): {
+export function deleteInternal(GQueryTableFactory: GQueryTableFactory<any>): {
   deletedRows: number;
 } {
-  const spreadsheetId = gqueryTableFactory.gQueryTable.spreadsheetId;
-  const sheetName = gqueryTableFactory.gQueryTable.sheetName;
-  const sheet = gqueryTableFactory.gQueryTable.sheet;
+  const spreadsheetId = GQueryTableFactory.GQueryTable.spreadsheetId;
+  const sheetName = GQueryTableFactory.GQueryTable.sheetName;
+  const sheet = GQueryTableFactory.GQueryTable.sheet;
   const sheetId = sheet.getSheetId();
 
   const { rows } = fetchSheetData(spreadsheetId, sheetName);
 
   // Check if filter is specified and rows exist
-  if (!gqueryTableFactory.filterOption || rows.length === 0) {
+  if (!GQueryTableFactory.filterOption || rows.length === 0) {
     return { deletedRows: 0 };
   }
 
   // Find rows matching the filter condition
   const rowsToDelete = rows.filter((row) => {
     try {
-      return gqueryTableFactory.filterOption!(row);
+      return GQueryTableFactory.filterOption!(row);
     } catch (error) {
       console.error("Error filtering row:", error);
       return false;
@@ -51,7 +51,7 @@ export function deleteInternal(gqueryTableFactory: GQueryTableFactory<any>): {
   // Execute batch delete
   try {
     callHandler(() =>
-      Sheets.Spreadsheets!.batchUpdate(batchUpdateRequest, spreadsheetId)
+      Sheets.Spreadsheets!.batchUpdate(batchUpdateRequest, spreadsheetId),
     );
     return { deletedRows: rowsToDelete.length };
   } catch (error) {

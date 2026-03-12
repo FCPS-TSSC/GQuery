@@ -56,10 +56,7 @@ export function normalizeForSchema(
  * @param values Raw values from the sheet (without header row)
  * @returns Array of GQueryRow objects
  */
-export function parseRows(
-  headers: string[],
-  values: any[][]
-): GQueryRow[] {
+export function parseRows(headers: string[], values: any[][]): GQueryRow[] {
   return values.map((row, rowIndex) => {
     const obj: GQueryRow = {
       __meta: {
@@ -85,12 +82,12 @@ export function parseRows(
  */
 export function fetchSheetData(
   spreadsheetId: string,
-  sheetName: string
+  sheetName: string,
 ): { headers: string[]; rows: GQueryRow[] } {
   const response = callHandler(() =>
-    Sheets.Spreadsheets!.Values!.get(spreadsheetId, sheetName)
+    Sheets.Spreadsheets!.Values!.get(spreadsheetId, sheetName),
   );
-  
+
   const values = response.values || [];
 
   if (values.length === 0) {
