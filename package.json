@@ -1,6 +1,6 @@
 {
   "name": "@imreallyliam/gquery",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "main": "dist/bundle.js",
   "types": "dist/bundle.d.ts",
   "source": "src/index.ts",
